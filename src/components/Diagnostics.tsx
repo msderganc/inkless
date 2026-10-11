@@ -4,9 +4,11 @@ import { LabelType, type PaperInfo } from "@mmote/niimbluelib";
 import { useEffect, useState } from "react";
 import { CATALOGUE, type LabelOverride } from "~/lib/catalogue";
 import { resolveLabel } from "~/lib/labels";
-import { DEFAULT_DENSITY } from "~/lib/printer/session";
+import { DEFAULT_DENSITY, labelTypeFor } from "~/lib/printer/session";
+import { browserEnv } from "~/lib/render/browser-env";
 import { encodeForPrinter } from "~/lib/render/encode";
 import { shiftColumns } from "~/lib/render/mono";
+import { outlineTest } from "~/lib/render/outline-test";
 import { testPattern } from "~/lib/render/test-pattern";
 import { overrideSchema } from "~/lib/store/store";
 import { useApp, useSessionStatus } from "./app-context";
@@ -17,7 +19,7 @@ const btn =
   "rounded border px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50";
 
 export default function Diagnostics() {
-  const { session, settings, updateSettings } = useApp();
+  const { session, settings, updateSettings, overrides } = useApp();
   const status = useSessionStatus(session);
   const ready = status.state === "ready";
   const [paper, setPaper] = useState<PaperInfo | null>();
@@ -29,6 +31,37 @@ export default function Diagnostics() {
     const t = setInterval(() => setLog(session.getPacketLog()), 1_000);
     return () => clearInterval(t);
   }, [session, settings.diagnostics]);
+
+  const [testLabelId, setTestLabelId] = useState(
+    settings.lastLabelId && resolveLabel(settings.lastLabelId)
+      ? settings.lastLabelId
+      : "round-31",
+  );
+
+  const printOutline = async () => {
+    setResult(undefined);
+    const spec = resolveLabel(testLabelId, overrides);
+    if (!spec) return;
+    try {
+      const out = await session.print({
+        pageCount: 1,
+        copies: 1,
+        density: DEFAULT_DENSITY,
+        labelType: labelTypeFor(spec.stock),
+        renderPage: async () =>
+          encodeForPrinter(
+            outlineTest(spec, browserEnv, settings.offsetDots).print,
+          ),
+      });
+      setResult(
+        out.status === "failed"
+          ? out.error
+          : `Outline test (${spec.name}) ${out.status}.`,
+      );
+    } catch (e) {
+      setResult(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const printPattern = async () => {
     setResult(undefined);
@@ -143,10 +176,37 @@ export default function Diagnostics() {
         <section className={box}>
           <h2 className="font-semibold">Test print and calibration</h2>
           <p className="text-sm text-neutral-600">
-            Prints a 48 mm wide ruler with a border and five darkness blocks on
-            a 30 mm label. Use 50 mm wide stock. If the pattern is off-centre,
-            adjust the offset (8 dots ≈ 1 mm). It shifts every print, including
-            this pattern.
+            <strong>Outline test</strong> (any roll): prints the printable-area
+            outline, a centre crosshair with 1 mm ticks and the size. It should
+            sit evenly about 1 mm inside the die-cut edge. If it is off to one
+            side, adjust the offset (8 dots ≈ 1 mm); the offset shifts every
+            print.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              aria-label="Label loaded in the printer"
+              className="rounded border px-2 py-1 text-sm"
+              value={testLabelId}
+              onChange={(e) => setTestLabelId(e.target.value)}
+            >
+              {CATALOGUE.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={btn}
+              disabled={!ready}
+              onClick={() => void printOutline()}
+            >
+              Print outline test
+            </button>
+          </div>
+          <p className="text-sm text-neutral-600">
+            <strong>Ruler pattern</strong> (50 mm wide rectangular stock only):
+            a 48 mm ruler with darkness blocks on a 30 mm label.
           </p>
           <div className="flex items-center gap-3">
             <button
@@ -155,7 +215,7 @@ export default function Diagnostics() {
               disabled={!ready}
               onClick={() => void printPattern()}
             >
-              Print test pattern
+              Print ruler pattern
             </button>
             <label className="flex items-center gap-2 text-sm">
               Offset (dots)
