@@ -9,8 +9,10 @@ export function ServiceWorker() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
     let reloading = false;
+    // First install: clients.claim() also fires controllerchange; reloading then would discard work.
+    const hadController = !!navigator.serviceWorker.controller;
     const onControllerChange = () => {
-      if (reloading) return;
+      if (reloading || !hadController) return;
       reloading = true;
       window.location.reload();
     };

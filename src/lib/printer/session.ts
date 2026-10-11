@@ -11,7 +11,6 @@ import {
   type PrintOptions,
   type RfidInfo,
 } from "@mmote/niimbluelib";
-
 import { RingLog } from "../ring-log";
 
 export const PACKET_LOG_SIZE = 500;
@@ -62,7 +61,9 @@ export interface PrintJob {
   renderPage(index: number): Promise<EncodedImage>;
 }
 
-export type JobOutcome = { status: "completed" | "cancelled"; printed: number } | { status: "failed"; printed: number; error: string };
+export type JobOutcome =
+  | { status: "completed" | "cancelled"; printed: number }
+  | { status: "failed"; printed: number; error: string };
 
 /** Exclusive ownership of the printer across tabs (V8). Returns a release function, or null if busy. */
 export type LockProvider = () => Promise<(() => void) | null>;
@@ -72,6 +73,8 @@ export interface SessionDeps {
   lock?: LockProvider;
   newPrintTask?(client: NiimbotAbstractClient, options: Partial<PrintOptions>): AbstractPrintTask;
   now?(): number;
+  /** Per-label completion deadline (default PAGE_DEADLINE_BASE_MS + PAGE_DEADLINE_PER_COPY_MS × copies). */
+  pageDeadlineMs?(copies: number): number;
 }
 
 /** Heartbeat cadence: frequent only around activity, slower when idle, none when hidden. */
@@ -80,6 +83,10 @@ export const HEARTBEAT_IDLE_MS = 10_000;
 export const ACTIVE_WINDOW_MS = 30_000;
 
 export const MAX_COPIES = 100;
+
+/** Default per-label completion deadline: generous for 100 copies of an 80 mm label. */
+export const PAGE_DEADLINE_BASE_MS = 20_000;
+export const PAGE_DEADLINE_PER_COPY_MS = 5_000;
 
 const ERROR_TEXT: Partial<Record<number, string>> = {
   [PrinterErrorCode.CoverOpen]: "The printer lid is open.",
@@ -127,6 +134,38 @@ export function webLockProvider(name = "b21s-printer"): LockProvider {
   };
 }
 
+/** Per-job cancellation flag and abort signal. */
+class JobControl {
+  cancelled = false;
+  private rejectAbort!: (e: Error) => void;
+  private readonly aborted = new Promise<never>((_, reject) => (this.rejectAbort = reject));
+
+  constructor() {
+    this.aborted.catch(() => undefined);
+  }
+
+  abort(e: Error) {
+    this.cancelled = true;
+    this.rejectAbort(e);
+  }
+
+  /** Resolve with `p`, or reject as soon as the job is aborted. */
+  guard<T>(p: Promise<T>): Promise<T> {
+    return Promise.race([p, this.aborted]);
+  }
+}
+
+function withDeadline<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error("The printer did not finish the label in time. Check the roll and the lid."));
+    }, ms);
+  });
+  return Promise.race([p, expired]).finally(() => clearTimeout(timer));
+}
+
 /**
  * One printer connection and at most one job at a time. Owns the client's lifecycle: listeners,
  * heartbeat cadence, cross-tab lock, and cancellation (stop after the current label, V2).
@@ -136,11 +175,17 @@ export class PrinterSession {
   private client?: NiimbotAbstractClient;
   private releaseLock?: () => void;
   private readonly subscribers = new Set<(s: SessionStatus) => void>();
-  private cancelRequested = false;
   private visible = true;
   private lastActivity = 0;
   private cadenceTimer?: ReturnType<typeof setInterval>;
+  private appliedInterval: number | null = null;
   private detach: (() => void)[] = [];
+  /** Connection generation: bumped by every connect and disconnect so stale attempts back off. */
+  private attempt = 0;
+  private connecting?: Promise<void>;
+  private running?: Promise<JobOutcome>;
+  private job?: JobControl;
+  private packetLog?: RingLog<PacketLogEntry>;
 
   constructor(private readonly deps: SessionDeps) {}
 
@@ -163,11 +208,32 @@ export class PrinterSession {
     for (const fn of this.subscribers) fn(this.status);
   }
 
-  async connect(): Promise<void> {
-    if (this.status.state !== "disconnected" && this.status.state !== "error") return;
+  /** Connect to the printer. Concurrent calls share one attempt; disconnect() cancels it. */
+  connect(): Promise<void> {
+    if (this.connecting) return this.connecting;
+    if (this.status.state !== "disconnected" && this.status.state !== "error") return Promise.resolve();
+    const gen = ++this.attempt;
+    this.connecting = this.doConnect(gen).finally(() => {
+      this.connecting = undefined;
+    });
+    return this.connecting;
+  }
+
+  private async doConnect(gen: number): Promise<void> {
+    const stale = () => gen !== this.attempt;
     this.set({ state: "connecting", error: undefined, progress: undefined });
 
-    const release = await (this.deps.lock ?? (async () => () => undefined))();
+    let release: (() => void) | null;
+    try {
+      release = await (this.deps.lock ?? (async () => () => undefined))();
+    } catch (e) {
+      if (!stale()) this.set({ state: "error", error: describeError(e) });
+      return;
+    }
+    if (stale()) {
+      release?.();
+      return;
+    }
     if (!release) {
       this.set({ state: "error", error: "The printer is already in use in another tab or window." });
       return;
@@ -176,10 +242,14 @@ export class PrinterSession {
 
     const client = this.deps.createClient();
     this.client = client;
-    this.wire(client);
     try {
       client.setHeartbeatAutoStart(false);
       await client.connect();
+      if (stale()) {
+        // disconnect() ran meanwhile and released the lock; make sure this port is closed too.
+        await client.disconnect().catch(() => undefined);
+        return;
+      }
       const info = client.getPrinterInfo();
       const modelId = info.modelId;
       if (modelId === undefined || !(SUPPORTED_MODEL_IDS as readonly number[]).includes(modelId)) {
@@ -188,6 +258,9 @@ export class PrinterSession {
       if (client.getPrintTaskType() !== "D110") {
         throw new Error("Unexpected print protocol for this printer model.");
       }
+      // Wire only after a successful connect so a failed negotiation cannot race the error state.
+      this.wire(client);
+      if (!client.isConnected()) throw new Error("The printer disconnected.");
       this.set({
         state: "ready",
         identity: {
@@ -202,8 +275,9 @@ export class PrinterSession {
       this.touch();
       this.cadenceTimer = setInterval(() => this.applyCadence(), 1_000);
     } catch (e) {
+      if (stale()) return;
       await this.teardown();
-      this.set({ state: "error", error: describeError(e) });
+      if (!stale()) this.set({ state: "error", error: describeError(e) });
     }
   }
 
@@ -211,6 +285,7 @@ export class PrinterSession {
     const onDisconnect = () => {
       if (this.client !== client) return;
       const midJob = this.status.state === "printing" || this.status.state === "cancelling";
+      this.job?.abort(new Error("The printer disconnected while printing."));
       void this.teardown().then(() =>
         this.set(
           midJob
@@ -237,8 +312,6 @@ export class PrinterSession {
     });
   }
 
-  private packetLog?: RingLog<PacketLogEntry>;
-
   /** Opt-in troubleshooting log of the last PACKET_LOG_SIZE packets (off by default). */
   setPacketLogging(enabled: boolean) {
     this.packetLog = enabled ? (this.packetLog ?? new RingLog(PACKET_LOG_SIZE)) : undefined;
@@ -254,18 +327,24 @@ export class PrinterSession {
     this.packetLog.push({ time: this.now(), dir, hex });
   }
 
+  private readyClient(): NiimbotAbstractClient | undefined {
+    return this.status.state === "ready" && this.client?.isConnected() ? this.client : undefined;
+  }
+
   /** Media info reported by the printer, if this model answers (V1: unverified on B21S). */
   async readPaperInfo(): Promise<PaperInfo | undefined> {
-    if (this.status.state !== "ready" || !this.client) return undefined;
+    const client = this.readyClient();
+    if (!client) return undefined;
     this.touch();
-    return this.client.protocol.getPaperInfo().catch(() => undefined);
+    return client.protocol.getPaperInfo().catch(() => undefined);
   }
 
   /** Re-read the roll's RFID tag. */
   async refreshRfid(): Promise<void> {
-    if (this.status.state !== "ready" || !this.client) return;
+    const client = this.readyClient();
+    if (!client) return;
     this.touch();
-    await this.client.fetchRfidInfo();
+    await client.fetchRfidInfo();
   }
 
   /** Report page visibility; heartbeat stops while hidden. */
@@ -281,22 +360,15 @@ export class PrinterSession {
     this.applyCadence();
   }
 
-  private currentInterval(): number | null {
-    if (!this.visible && this.status.state !== "printing" && this.status.state !== "cancelling") return null;
-    const active =
-      this.status.state === "printing" ||
-      this.status.state === "cancelling" ||
-      this.now() - this.lastActivity < ACTIVE_WINDOW_MS;
-    return active ? HEARTBEAT_ACTIVE_MS : HEARTBEAT_IDLE_MS;
-  }
-
-  private appliedInterval: number | null = null;
-
   private applyCadence() {
     const client = this.client;
     if (!client?.isConnected() || this.status.state === "connecting") return;
-    // The print task polls status itself; a heartbeat during a job would only compete for the line.
-    const want = this.status.state === "printing" || this.status.state === "cancelling" ? null : this.currentInterval();
+    const busy = this.status.state === "printing" || this.status.state === "cancelling";
+    // During a job the print task polls status itself; a heartbeat would only compete for the line.
+    let want: number | null = null;
+    if (!busy && this.visible) {
+      want = this.now() - this.lastActivity < ACTIVE_WINDOW_MS ? HEARTBEAT_ACTIVE_MS : HEARTBEAT_IDLE_MS;
+    }
     if (want === this.appliedInterval) return;
     this.appliedInterval = want;
     client.stopHeartbeat();
@@ -306,9 +378,15 @@ export class PrinterSession {
     }
   }
 
+  /**
+   * Disconnect. Cancels a connect in progress and aborts a running job (never resent), then
+   * releases the port, listeners, timers and cross-tab lock.
+   */
   async disconnect(): Promise<void> {
-    if (this.status.state === "printing") await this.cancel();
+    this.attempt++;
+    this.job?.abort(new Error("Disconnected."));
     await this.teardown();
+    await this.running?.catch(() => undefined);
     this.set({ state: "disconnected", error: undefined, heartbeat: undefined, progress: undefined });
   }
 
@@ -322,27 +400,28 @@ export class PrinterSession {
     this.detach = [];
     if (client) {
       client.stopHeartbeat();
+      client.protocol.cancelStatusPoll();
       await client.disconnect().catch(() => undefined);
     }
     this.releaseLock?.();
     this.releaseLock = undefined;
   }
 
-  private running?: Promise<JobOutcome>;
-
   /** Request cancellation: stops after the label currently printing (V2). Resolves when the job ends. */
   async cancel(): Promise<void> {
-    if (this.status.state !== "printing") return;
-    this.cancelRequested = true;
-    this.set({ state: "cancelling" });
+    if (this.job && this.status.state === "printing") {
+      this.job.cancelled = true;
+      this.set({ state: "cancelling" });
+    }
     await this.running?.catch(() => undefined);
   }
 
   /** Print a job. Rejects immediately if the printer is not ready (queue length 1). */
   print(job: PrintJob): Promise<JobOutcome> {
     const client = this.client;
-    if (this.status.state !== "ready" || !client) {
-      return Promise.reject(new Error(this.status.state === "printing" ? "A job is already printing." : "The printer is not ready."));
+    if (this.running) return Promise.reject(new Error("A job is already printing."));
+    if (this.status.state !== "ready" || !client?.isConnected()) {
+      return Promise.reject(new Error("The printer is not ready."));
     }
     if (!(job.pageCount >= 1)) return Promise.reject(new Error("Nothing to print."));
     if (!(job.copies >= 1 && job.copies <= MAX_COPIES)) {
@@ -350,16 +429,18 @@ export class PrinterSession {
     }
     if (!(job.density >= 1 && job.density <= 5)) return Promise.reject(new Error("Density must be between 1 and 5."));
 
-    this.cancelRequested = false;
+    const control = new JobControl();
+    this.job = control;
     this.set({ state: "printing", error: undefined, progress: { done: 0, total: job.pageCount } });
     this.applyCadence();
-    this.running = this.run(client, job).finally(() => {
+    this.running = this.run(client, job, control).finally(() => {
       this.running = undefined;
+      if (this.job === control) this.job = undefined;
     });
     return this.running;
   }
 
-  private async run(client: NiimbotAbstractClient, job: PrintJob): Promise<JobOutcome> {
+  private async run(client: NiimbotAbstractClient, job: PrintJob, control: JobControl): Promise<JobOutcome> {
     const options: Partial<PrintOptions> = {
       density: job.density,
       labelType: job.labelType,
@@ -370,35 +451,39 @@ export class PrinterSession {
     const task = this.deps.newPrintTask
       ? this.deps.newPrintTask(client, options)
       : client.protocol.newPrintTask("D110", options);
+    const deadline =
+      this.deps.pageDeadlineMs?.(job.copies) ?? PAGE_DEADLINE_BASE_MS + PAGE_DEADLINE_PER_COPY_MS * job.copies;
     let printed = 0;
     let outcome: JobOutcome;
     try {
-      await task.printInit();
+      await control.guard(task.printInit());
       for (let i = 0; i < job.pageCount; i++) {
-        if (this.cancelRequested) break;
+        if (control.cancelled) break;
         if (!client.isConnected()) throw new Error("The printer disconnected.");
-        const image = await job.renderPage(i);
-        await task.printPage(image, job.copies);
-        await task.waitForPageFinished();
+        const image = await control.guard(job.renderPage(i));
+        await control.guard(task.printPage(image, job.copies));
+        // A stalled feed keeps answering status polls without finishing, so bound every label.
+        await control.guard(withDeadline(task.waitForPageFinished(), deadline, () => client.protocol.cancelStatusPoll()));
         printed++;
-        this.set({ progress: { done: printed, total: job.pageCount } });
+        if (this.client === client) this.set({ progress: { done: printed, total: job.pageCount } });
       }
-      outcome = { status: this.cancelRequested ? "cancelled" : "completed", printed };
+      outcome = { status: control.cancelled ? "cancelled" : "completed", printed };
     } catch (e) {
       outcome = { status: "failed", printed, error: describeError(e) };
     }
     // Always end the print session on the printer; never resend pages automatically.
-    try {
-      await task.printEnd();
-    } catch {
-      // The printer may already have ended or gone away.
+    if (client.isConnected()) {
+      try {
+        await control.guard(task.printEnd());
+      } catch {
+        // The printer may already have ended or gone away.
+      }
     }
-    this.cancelRequested = false;
+    // Touch session state only while this job's connection is still current; otherwise the
+    // disconnect/unplug path, or a newer connection, owns it.
     if (this.client === client && client.isConnected()) {
       this.set({ state: "ready", error: outcome.status === "failed" ? outcome.error : undefined });
       this.touch();
-    } else if (this.status.state !== "disconnected") {
-      this.set({ state: "error", error: outcome.status === "failed" ? outcome.error : "The printer disconnected." });
     }
     return outcome;
   }

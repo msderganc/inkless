@@ -38,6 +38,7 @@ self.addEventListener("fetch", (event) => {
       try {
         return await fetch(req);
       } catch {
+        if (req.mode !== "navigate") return Response.error();
         const fallback = await cache.match("/");
         return fallback ?? Response.error();
       }

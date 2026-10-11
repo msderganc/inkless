@@ -8,10 +8,11 @@ interface Props {
   current?: { id: string; name: string };
   onSave: (name: string, asNew: boolean) => Promise<void>;
   onLoad: (t: Template) => void;
+  onDeleted: (id: string) => void;
   revision: number;
 }
 
-export function TemplatesPanel({ current, onSave, onLoad, revision }: Props) {
+export function TemplatesPanel({ current, onSave, onLoad, onDeleted, revision }: Props) {
   const { store, reloadOverrides } = useApp();
   const [items, setItems] = useState<Template[]>([]);
   const [name, setName] = useState(current?.name ?? "");
@@ -90,6 +91,7 @@ export function TemplatesPanel({ current, onSave, onLoad, revision }: Props) {
               onClick={async () => {
                 if (!window.confirm(`Delete template “${t.name}”?`)) return;
                 await store.deleteTemplate(t.id);
+                onDeleted(t.id);
                 await refresh();
               }}
             >

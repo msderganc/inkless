@@ -15,7 +15,7 @@ function walk(dir) {
 
 const files = walk(OUT)
   .map((p) => relative(OUT, p).split(sep).join("/"))
-  .filter((f) => f !== "sw.js" && f !== "build-manifest.json" && !f.endsWith(".txt"))
+  .filter((f) => f !== "sw.js" && f !== "build-manifest.json")
   .sort();
 
 const hashes = Object.fromEntries(

@@ -34,6 +34,8 @@ export class SimulatedB21S extends FakeSerialPort {
   /** Bitmap/empty-row packets received. */
   imagePackets = 0;
   ended = 0;
+  /** When true, pages never complete (a jammed or stalled feed that still answers status polls). */
+  stalled = false;
   /** Status code to report in print status (e.g. 1 = lid open). */
   statusError = 0;
 
@@ -64,7 +66,7 @@ export class SimulatedB21S extends FakeSerialPort {
         this.quantity = (data[0]! << 8) | data[1]!;
         break;
       case 0xe3:
-        this.pagesPrinted += this.quantity;
+        if (!this.stalled) this.pagesPrinted += this.quantity;
         break;
       case 0xf3:
         this.ended++;

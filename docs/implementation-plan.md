@@ -3,6 +3,20 @@
 Date: October 11, 2026
 Spec: `G:/niimbot-investigation-20261011/NIIMBOT-B21S-replacement-plan.md` (requirements, label catalogue, validation findings V1–V10)
 
+## Status (October 11, 2026)
+
+| Wave | Status |
+|---|---|
+| 0 Scaffold | Done. Node 24.21.0 LTS installed per-user; T3 static export; NiimBlueLib pinned at 0.47.0. |
+| 1 Core logic | Done, unit-tested. |
+| 2 Printer layer | Code done and tested offline against the recorded B21S 40.28 session and a simulated print sequence through the real D110 print task. **Hardware milestone pending (needs the printer).** |
+| 3 Editor UI | Done; exercised in Chromium (add/edit text, batch, jewelry rotation, cable repeat, image import, templates across reload). |
+| 4 Packaging | PWA and service worker done; offline load verified with the server stopped. Start Menu install is a one-click step for Matthew. |
+| 5 Hardware validation | Pending (needs the printer and rolls). README lists the steps. |
+| 6 Cutover | Pending; commands in README. |
+
+Deviation from V6: NiimBlueLib is CommonJS-only, so the unused BLE code cannot be tree-shaken. It is bundled but never constructed.
+
 ## Goal
 
 A small offline web app that designs and prints labels on Matthew's NIIMBOT B21S over USB (Web Serial, COM3) without the vendor helper. It runs no background process when closed.

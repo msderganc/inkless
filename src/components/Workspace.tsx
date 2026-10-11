@@ -12,7 +12,6 @@ interface Props {
   design: Design;
   preview?: MonoBitmap;
   view: "design" | "print";
-  offsetDots: number;
   selectedId?: string;
   zoom: number;
   onSelect: (id: string | undefined) => void;
@@ -24,7 +23,7 @@ type Drag = { id: string; mode: "move" | "resize"; startX: number; startY: numbe
 const MIN_SIZE_MM = 2;
 
 /** Label canvas: printed-pixel preview, die-cut outline, safe area, guides and draggable element boxes. */
-export function Workspace({ spec, design, preview, view, offsetDots, selectedId, zoom, onSelect, onChange }: Props) {
+export function Workspace({ spec, design, preview, view, selectedId, zoom, onSelect, onChange }: Props) {
   const pixels = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const [drag, setDrag] = useState<Drag>();
@@ -57,7 +56,7 @@ export function Workspace({ spec, design, preview, view, offsetDots, selectedId,
     ctx.clearRect(0, 0, w, h);
 
     // Columns the printhead cannot reach (50 mm stock is wider than the 48 mm head).
-    const win = printWindow(spec.widthMm, offsetDots);
+    const win = printWindow(spec.widthMm);
     ctx.fillStyle = "rgba(220, 38, 38, 0.12)";
     const left = dotsToMm(win.start) * zoom;
     const right = dotsToMm(win.start + win.width) * zoom;
@@ -83,7 +82,7 @@ export function Workspace({ spec, design, preview, view, offsetDots, selectedId,
       ctx.stroke();
     }
     ctx.setLineDash([]);
-  }, [spec, zoom, w, h, offsetDots]);
+  }, [spec, zoom, w, h]);
 
   useEffect(() => {
     if (!drag) return;
@@ -97,10 +96,12 @@ export function Workspace({ spec, design, preview, view, offsetDots, selectedId,
     };
     const up = () => setDrag(undefined);
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
   }, [drag, zoom, onChange]);
 

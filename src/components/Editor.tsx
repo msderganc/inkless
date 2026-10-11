@@ -46,6 +46,7 @@ export default function Editor() {
   const [previewError, setPreviewError] = useState<string>();
   const [lastResult, setLastResult] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const [loads, setLoads] = useState(0);
   const imageInput = useRef<HTMLInputElement>(null);
 
   // Memoised: custom/overridden specs are new objects, which would otherwise re-trigger rendering forever.
@@ -201,6 +202,10 @@ export default function Editor() {
   };
 
   const load = (t: Template) => {
+    if (!resolveLabel(t.design.labelId, overrides)) {
+      setLastResult(`"${t.name}" uses an unknown label (${t.design.labelId}). Pick the label before printing.`);
+    }
+    setLoads((n) => n + 1);
     setDesign(t.design);
     setBatch(t.batch);
     setDensity(t.density);
@@ -247,7 +252,13 @@ export default function Editor() {
               <p className="text-xs text-neutral-500">Design both panels upright. The lower panel prints upside down so it reads correctly when folded.</p>
             )}
           </section>
-          <TemplatesPanel current={current} onSave={save} onLoad={load} revision={revision} />
+          <TemplatesPanel
+            current={current}
+            onSave={save}
+            onLoad={load}
+            onDeleted={(id) => current?.id === id && setCurrent(undefined)}
+            revision={revision}
+          />
         </aside>
 
         <main className="flex flex-1 flex-col items-center gap-3 overflow-auto p-6">
@@ -276,7 +287,6 @@ export default function Editor() {
             design={design}
             preview={preview}
             view={view}
-            offsetDots={settings.offsetDots}
             selectedId={selectedId}
             zoom={zoom}
             onSelect={setSelectedId}
@@ -302,6 +312,7 @@ export default function Editor() {
             <p className="text-sm text-neutral-500">Select an item on the label to edit it.</p>
           )}
           <PrintPanel
+            key={loads}
             batch={batch}
             onBatch={setBatch}
             copies={copies}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeEnv, halfBlackPng } from "~/test/canvas-env";
 import { CATALOGUE, findLabel, type LabelSpec } from "../catalogue";
-import { type Design, emptyDesign, type ImageElement, newText, type TextElement } from "../design";
+import { type Design, designSchema, emptyDesign, type ImageElement, MAX_IMAGE_SRC_CHARS, newText, type TextElement } from "../design";
 import { DOTS_PER_MM, mmToDots, PRINTHEAD_DOTS } from "../geometry";
 import { regionContains, safeRegion } from "../shapes";
 import { encodeForPrinter } from "./encode";
@@ -143,28 +143,128 @@ describe("renderLabel", () => {
     expect(dithered / area).toBeCloseTo(0.5, 1);
   });
 
-  it("rotated text renders within its box", async () => {
+  it("rotated text runs vertically inside its box", async () => {
     const spec = findLabel("rect-50x30")!;
-    const el = { ...newText(20, 2, 10, 26), text: "ROTATED", rotation: 90 as const };
+    const el = { ...newText(20, 2, 10, 26), text: "ROTATED TEXT", rotation: 90 as const };
     const r = await renderLabel(design(spec, [el]), spec, nodeEnv);
-    const w = r.label.width;
-    for (let y = 0; y < r.label.height; y++) {
-      for (let x = 0; x < w; x++) {
-        if (!r.label.data[y * w + x]) continue;
-        const xm = x / DOTS_PER_MM;
-        expect(xm).toBeGreaterThanOrEqual(19.5);
-        expect(xm).toBeLessThanOrEqual(30.5);
-      }
-    }
-    expect(blackCount(r.label)).toBeGreaterThan(0);
+    const b = inkBounds(r.label);
+    expect(b).toBeDefined();
+    expect(b!.x0).toBeGreaterThanOrEqual(19.5);
+    expect(b!.x1).toBeLessThanOrEqual(30.5);
+    // A rotated line of text is much taller than it is wide; an unrotated one would be the reverse.
+    expect(b!.y1 - b!.y0).toBeGreaterThan(2 * (b!.x1 - b!.x0));
+
+    const flat = await renderLabel(design(spec, [{ ...el, w: 26, h: 10, x: 2, y: 2, rotation: 0 }]), spec, nodeEnv);
+    const f = inkBounds(flat.label)!;
+    expect(f.x1 - f.x0).toBeGreaterThan(2 * (f.y1 - f.y0));
   });
 
-  it("calibration offset shifts the print window", async () => {
-    const spec = findLabel("rect-50x30")!;
-    const r = await renderLabel(emptyDesign(spec.id), spec, nodeEnv, { offsetDots: 4 });
-    expect(r.window.start).toBe(12);
+  it("calibration offset shifts the printed content, for narrow labels too", async () => {
+    for (const id of ["rect-40x30", "rect-50x30"]) {
+      const spec = findLabel(id)!;
+      const el = { ...newText(10, 5, 10, 10), text: "█", autoFit: false, fontSizeMm: 8 };
+      const base = await renderLabel(design(spec, [el]), spec, nodeEnv);
+      const shifted = await renderLabel(design(spec, [el]), spec, nodeEnv, { offsetDots: 5 });
+      expect(shifted.print.width).toBe(base.print.width);
+      const bx = inkBounds(base.print, 1)!;
+      const sx = inkBounds(shifted.print, 1)!;
+      expect(sx.x0 - bx.x0).toBe(5);
+      expect(blackCount(shifted.print)).toBe(blackCount(base.print));
+    }
+  });
+
+  it("independent check: no ink within 1 mm of any die-cut edge or outside round labels", async () => {
+    for (const id of ["rect-40x30", "rect-50x80", "round-31", "round-50"]) {
+      const spec = findLabel(id)!;
+      const r = await renderLabel(design(spec, [fullBlock(spec)]), spec, nodeEnv);
+      const b = inkBounds(r.label)!;
+      expect(b.x0).toBeGreaterThanOrEqual(1 - 0.15);
+      expect(b.y0).toBeGreaterThanOrEqual(1 - 0.15);
+      expect(b.x1).toBeLessThanOrEqual(spec.widthMm - 1 + 0.15);
+      expect(b.y1).toBeLessThanOrEqual(spec.heightMm - 1 + 0.15);
+      if (spec.family === "round") {
+        const w = r.label.width;
+        const c = spec.widthMm / 2;
+        for (let i = 0; i < r.label.data.length; i++) {
+          if (!r.label.data[i]) continue;
+          const x = ((i % w) + 0.5) / DOTS_PER_MM;
+          const y = (Math.floor(i / w) + 0.5) / DOTS_PER_MM;
+          expect(Math.hypot(x - c, y - c)).toBeLessThanOrEqual(c - 1 + 0.15);
+        }
+      }
+    }
+    // 50 mm stock: nothing in the 1 mm strips the 48 mm head cannot reach.
+    const wide = findLabel("rect-50x30")!;
+    const r = await renderLabel(design(wide, [fullBlock(wide)]), wide, nodeEnv);
+    const b = inkBounds(r.label, 1)!;
+    // 400-dot raster, 384-dot head centred: columns 8..391 are reachable.
+    expect(b.x0).toBeGreaterThanOrEqual(8);
+    expect(b.x1).toBeLessThanOrEqual(392);
+  });
+
+  it("ignores images without an intrinsic size and clamps oversized boxes", async () => {
+    const spec = findLabel("rect-40x30")!;
+    const svg = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString("base64")}`;
+    const img: ImageElement = {
+      id: "i",
+      kind: "image",
+      x: 0,
+      y: 0,
+      w: 500,
+      h: 500,
+      rotation: 0,
+      src: halfBlackPng(10, 10),
+      dither: false,
+      threshold: 128,
+      invert: false,
+    };
+    await expect(renderLabel(design(spec, [img]), spec, nodeEnv)).resolves.toBeDefined();
+    const noSize = await renderLabel(design(spec, [{ ...img, w: 10, h: 10, src: svg }]), spec, nodeEnv).catch(() => null);
+    if (noSize) expect(blackCount(noSize.label)).toBe(0);
   });
 });
+
+describe("design schema bounds (untrusted imports)", () => {
+  it("rejects absurd element geometry and oversized images", () => {
+    const base = newText(0, 0, 10, 10);
+    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [base] }).success).toBe(true);
+    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [{ ...base, w: 1e6 }] }).success).toBe(false);
+    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [{ ...base, x: -1e6 }] }).success).toBe(false);
+    const huge: ImageElement = {
+      id: "i",
+      kind: "image",
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 10,
+      rotation: 0,
+      src: `data:image/png;base64,${"A".repeat(MAX_IMAGE_SRC_CHARS)}`,
+      dither: false,
+      threshold: 128,
+      invert: false,
+    };
+    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [huge] }).success).toBe(false);
+  });
+});
+
+/** Ink bounding box in mm (or in dots when scale = 1). */
+function inkBounds(bmp: MonoBitmap, scale = DOTS_PER_MM) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (let i = 0; i < bmp.data.length; i++) {
+    if (!bmp.data[i]) continue;
+    const x = i % bmp.width;
+    const y = Math.floor(i / bmp.width);
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x + 1);
+    y1 = Math.max(y1, y + 1);
+  }
+  if (x0 === Infinity) return undefined;
+  return { x0: x0 / scale, y0: y0 / scale, x1: x1 / scale, y1: y1 / scale };
+}
 
 describe("encodeForPrinter", () => {
   it("rejects rasters wider than the printhead", () => {

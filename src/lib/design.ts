@@ -7,12 +7,16 @@ import { z } from "zod";
 export const rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
 export type Rotation = z.infer<typeof rotationSchema>;
 
+/** Elements beyond these bounds cannot be on any label; bounding them keeps rendering cheap. */
+export const MAX_ELEMENT_MM = 500;
+export const MAX_IMAGE_SRC_CHARS = 6_000_000;
+
 const box = {
-  id: z.string().min(1),
-  x: z.number().finite(),
-  y: z.number().finite(),
-  w: z.number().positive(),
-  h: z.number().positive(),
+  id: z.string().min(1).max(100),
+  x: z.number().finite().min(-MAX_ELEMENT_MM).max(MAX_ELEMENT_MM),
+  y: z.number().finite().min(-MAX_ELEMENT_MM).max(MAX_ELEMENT_MM),
+  w: z.number().positive().max(MAX_ELEMENT_MM),
+  h: z.number().positive().max(MAX_ELEMENT_MM),
   rotation: rotationSchema,
 };
 
@@ -32,7 +36,7 @@ export const imageElementSchema = z.object({
   ...box,
   kind: z.literal("image"),
   /** data: URL of the source image. */
-  src: z.string().startsWith("data:image/"),
+  src: z.string().startsWith("data:image/").max(MAX_IMAGE_SRC_CHARS),
   dither: z.boolean(),
   /** 0–255; pixels darker than this print black (threshold mode). */
   threshold: z.number().int().min(0).max(255),

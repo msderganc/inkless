@@ -6,6 +6,7 @@ import { CATALOGUE, type LabelOverride } from "~/lib/catalogue";
 import { resolveLabel } from "~/lib/labels";
 import { DEFAULT_DENSITY } from "~/lib/printer/session";
 import { encodeForPrinter } from "~/lib/render/encode";
+import { shiftColumns } from "~/lib/render/mono";
 import { testPattern } from "~/lib/render/test-pattern";
 import { overrideSchema } from "~/lib/store/store";
 import { useApp, useSessionStatus } from "./app-context";
@@ -36,7 +37,7 @@ export default function Diagnostics() {
         copies: 1,
         density: DEFAULT_DENSITY,
         labelType: LabelType.WithGaps,
-        renderPage: async () => encodeForPrinter(testPattern(30)),
+        renderPage: async () => encodeForPrinter(shiftColumns(testPattern(30), settings.offsetDots)),
       });
       setResult(out.status === "failed" ? out.error : `Test pattern ${out.status}.`);
     } catch (e) {
@@ -100,7 +101,7 @@ export default function Diagnostics() {
           <h2 className="font-semibold">Test print and calibration</h2>
           <p className="text-sm text-neutral-600">
             Prints a 48 mm wide ruler with a border and five darkness blocks on a 30 mm label. Use 50 mm wide stock. If the
-            pattern is off-centre, adjust the offset (8 dots ≈ 1 mm).
+            pattern is off-centre, adjust the offset (8 dots ≈ 1 mm). It shifts every print, including this pattern.
           </p>
           <div className="flex items-center gap-3">
             <button type="button" className={btn} disabled={!ready} onClick={() => void printPattern()}>

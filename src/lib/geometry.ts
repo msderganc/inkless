@@ -15,7 +15,7 @@ export function dotsToMm(dots: number): number {
  * Horizontal window of the full label raster that the printhead can reach.
  *
  * The label is rendered at its full width; labels wider than the printhead are cropped
- * symmetrically, then shifted by a calibration offset (positive = towards higher x).
+ * symmetrically. (Calibration is applied afterwards by shifting the content, see shiftColumns.)
  */
 export interface PrintWindow {
   /** Full label raster width in dots. */
@@ -26,12 +26,9 @@ export interface PrintWindow {
   width: number;
 }
 
-export function printWindow(labelWidthMm: number, offsetDots = 0): PrintWindow {
+export function printWindow(labelWidthMm: number): PrintWindow {
   if (!(labelWidthMm > 0)) throw new RangeError("Label width must be positive");
   const labelDots = mmToDots(labelWidthMm);
   const width = Math.min(labelDots, PRINTHEAD_DOTS);
-  const centred = Math.floor((labelDots - width) / 2);
-  const maxStart = labelDots - width;
-  const start = Math.min(Math.max(centred + Math.round(offsetDots), 0), maxStart);
-  return { labelDots, start, width };
+  return { labelDots, start: Math.floor((labelDots - width) / 2), width };
 }

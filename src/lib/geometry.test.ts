@@ -19,12 +19,6 @@ describe("printWindow", () => {
   it("sends narrow labels whole", () => {
     expect(printWindow(40)).toEqual({ labelDots: 320, start: 0, width: 320 });
   });
-  it("applies and clamps the calibration offset", () => {
-    expect(printWindow(50, 3).start).toBe(11);
-    expect(printWindow(50, 100).start).toBe(16);
-    expect(printWindow(50, -100).start).toBe(0);
-    expect(printWindow(40, 5).start).toBe(0);
-  });
   it("rejects non-positive widths", () => {
     expect(() => printWindow(0)).toThrow(RangeError);
   });

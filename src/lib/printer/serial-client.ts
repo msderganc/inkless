@@ -1,4 +1,14 @@
-import { type ConnectionInfo, ConnectResult, ConnectEvent, DisconnectEvent, NiimbotAbstractClient } from "@mmote/niimbluelib";
+import {
+  type ConnectionInfo,
+  ConnectResult,
+  ConnectEvent,
+  DisconnectEvent,
+  NiimbotAbstractClient,
+  type NiimbotPacket,
+  type ResponseCommandId,
+} from "@mmote/niimbluelib";
+
+const WRITER_CLOSE_GRACE_MS = 500;
 
 /** USB IDs of the NIIMBOT serial interface (spec: `USB\VID_3513&PID_0002`). */
 export const NIIMBOT_USB_VENDOR_ID = 0x3513;
@@ -20,7 +30,9 @@ export type PortSource = () => Promise<SerialPortLike>;
  *  - the port `disconnect` listener is removed on every disconnect instead of accumulating;
  *  - the reader is cancelled before its lock is released and the read loop is awaited;
  *  - a failed negotiation is cleaned up before `connect()` rejects;
- *  - disconnect is idempotent and emits `disconnect` exactly once per connection.
+ *  - disconnect is idempotent and emits `disconnect` exactly once per connection;
+ *  - pending request/response waits are rejected on disconnect, and a stream that ends on its
+ *    own (device gone) is treated as a disconnect.
  */
 export class B21SerialClient extends NiimbotAbstractClient {
   private port?: SerialPortLike;
@@ -29,6 +41,8 @@ export class B21SerialClient extends NiimbotAbstractClient {
   private readLoop?: Promise<void>;
   private onPortDisconnect?: () => void;
   private closing?: Promise<void>;
+  /** Rejecters for in-flight request/response waits, released on teardown. */
+  private readonly waiters = new Set<(e: Error) => void>();
 
   constructor(private readonly portSource: PortSource) {
     super();
@@ -38,7 +52,14 @@ export class B21SerialClient extends NiimbotAbstractClient {
     await this.disconnect();
 
     const port = await this.portSource();
-    await port.open({ baudRate: 115200 });
+    try {
+      await port.open({ baudRate: 115200 });
+    } catch (e) {
+      // A previous session may have left this port open (e.g. a close that failed). Retry once.
+      if (!(e instanceof DOMException && e.name === "InvalidStateError")) throw e;
+      await port.close().catch(() => undefined);
+      await port.open({ baudRate: 115200 });
+    }
     if (!port.readable || !port.writable) {
       await port.close().catch(() => undefined);
       throw new Error("Port is not readable/writable");
@@ -77,7 +98,11 @@ export class B21SerialClient extends NiimbotAbstractClient {
         void this.disconnect();
         return;
       }
-      if (chunk.done) return;
+      if (chunk.done) {
+        // The stream ended without our cancel (device gone): treat it as a disconnect.
+        void this.disconnect();
+        return;
+      }
       if (chunk.value?.length) this.processRawPacket(chunk.value);
     }
   }
@@ -89,9 +114,31 @@ export class B21SerialClient extends NiimbotAbstractClient {
     return this.closing;
   }
 
+  /**
+   * The library's request/response wait, but rejected immediately on disconnect instead of holding
+   * the client's mutex until its timeout.
+   */
+  public override waitForPacket(
+    ids: ResponseCommandId[] = [],
+    catchErrorPackets = true,
+    timeoutMs = 1000,
+  ): Promise<NiimbotPacket> {
+    if (!this.isConnected()) return Promise.reject(new Error("Printer is not connected"));
+    return new Promise<NiimbotPacket>((resolve, reject) => {
+      this.waiters.add(reject);
+      super
+        .waitForPacket(ids, catchErrorPackets, timeoutMs)
+        .then(resolve, reject)
+        .finally(() => this.waiters.delete(reject));
+    });
+  }
+
   private async teardown(): Promise<void> {
     const port = this.port!;
     this.stopHeartbeat();
+    const lost = new Error("The printer disconnected.");
+    for (const reject of this.waiters) reject(lost);
+    this.waiters.clear();
     if (this.onPortDisconnect) port.removeEventListener("disconnect", this.onPortDisconnect);
     this.onPortDisconnect = undefined;
 
@@ -107,9 +154,23 @@ export class B21SerialClient extends NiimbotAbstractClient {
     }
     this.readLoop = undefined;
     if (writer) {
+      // Flush, but never wait on a hung write: abort it after a short grace period.
+      const flushed = await Promise.race([
+        writer.close().then(
+          () => true,
+          () => false,
+        ),
+        new Promise<boolean>((r) => setTimeout(() => r(false), WRITER_CLOSE_GRACE_MS)),
+      ]);
+      if (!flushed) await writer.abort().catch(() => undefined);
       writer.releaseLock();
     }
-    await port.close().catch(() => undefined);
+    try {
+      await port.close();
+    } catch (e) {
+      // connect() retries a port left open, so this is recoverable; report it for diagnostics.
+      console.warn("Serial port did not close cleanly", e);
+    }
     this.port = undefined;
     this.emit("disconnect", new DisconnectEvent());
   }

@@ -80,6 +80,24 @@ export function cropColumns(bmp: MonoBitmap, start: number, width: number): Mono
   return out;
 }
 
+/**
+ * Shift content horizontally by `dots` (positive = right), keeping the width; columns shifted in
+ * are blank and columns shifted past the edge are dropped. Used for print calibration.
+ */
+export function shiftColumns(bmp: MonoBitmap, dots: number): MonoBitmap {
+  const d = Math.round(dots);
+  if (d === 0) return bmp;
+  const out = createMono(bmp.width, bmp.height);
+  for (let y = 0; y < bmp.height; y++) {
+    const row = y * bmp.width;
+    for (let x = 0; x < bmp.width; x++) {
+      const src = x - d;
+      if (src >= 0 && src < bmp.width) out.data[row + x] = bmp.data[row + src]!;
+    }
+  }
+  return out;
+}
+
 export function blackCount(bmp: MonoBitmap): number {
   let n = 0;
   for (const v of bmp.data) n += v;

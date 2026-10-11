@@ -105,6 +105,15 @@ export class FakeSerialPort extends EventTarget implements SerialPortLike {
     return { usbVendorId: 0x3513, usbProductId: 0x0002 };
   }
 
+  /** End the readable stream as if the device closed it (no error, no disconnect event). */
+  endStream() {
+    try {
+      this.controller?.close();
+    } catch {
+      // ignore
+    }
+  }
+
   /** Simulate unplugging the cable. */
   unplug() {
     try {

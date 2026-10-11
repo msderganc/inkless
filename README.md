@@ -1,29 +1,127 @@
-# Create T3 App
+# B21S Labels
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+An offline label designer and printer for the NIIMBOT B21S over USB. It replaces the always-running NIIMBOT helper service (`jcPrinterService`). Nothing runs in the background: the app holds the printer only while its window is open.
 
-## What's next? How do I make an app with this?
+- Spec and evidence: `G:/niimbot-investigation-20261011/NIIMBOT-B21S-replacement-plan.md`
+- Implementation plan: [docs/implementation-plan.md](docs/implementation-plan.md)
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+Built with the T3 stack (Next.js static export, TypeScript, Tailwind). tRPC, a database and auth are omitted because there is no server. Printer protocol: [NiimBlueLib](https://github.com/MultiMote/niimbluelib) 0.47.0 (MIT), with an app-owned Web Serial client that fixes its connection-lifecycle gaps.
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+## Features
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+- Every NIIMBOT B21-family shape: rectangles, round, wave round, jewelry tags (two panels, the lower one printed upside down so it reads when folded) and cable labels (optionally repeating the flag text along the wrap). Custom rectangles are also supported.
+- Text with font, size, bold, alignment, rotation and shrink-to-fit. Images with threshold, dither and invert.
+- Batches of up to 500 labels: numbered sequences (prefix, padding, step) or a pasted list, via `{n}` in any text.
+- Exact 1-bit preview, in both the design view and the as-printed view.
+- Copies, darkness 1–5, and cancel (stops after the label currently printing).
+- Templates saved in the browser, with JSON backup export and import.
+- Remembers which label is loaded for each RFID roll barcode.
+- Diagnostics page: printer and roll info, a test pattern, horizontal calibration, measured-geometry overrides, and an opt-in packet log (last 500 packets).
 
-## Learn More
+## Requirements
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+- Windows with Microsoft Edge or Google Chrome. Web Serial is not available in Firefox.
+- Node.js 24 LTS, to build. It is installed at `%USERPROFILE%\tools\node-v24.21.0-win-x64` and on the user `PATH`.
+- The B21S connected by USB, using the existing NIIMBOT driver. It appears as `Niimbot Serial Port (COMx)`.
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+## Build and install
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+```bash
+npm install
+```
 
-## How do I deploy this?
+```bash
+npm run build
+```
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+```bash
+npm run serve
+```
+
+1. Open `http://localhost:5179/` in Edge or Chrome. Always use this exact address, because saved templates belong to it.
+2. Install the app from the address bar (**App available → Install**). This adds a Start Menu entry.
+3. Stop the server (Ctrl+C). The installed app keeps working offline with no server running.
+
+To update, rebuild and run `npm run serve` again, open the app, and click **Update** when prompted.
+
+## Using the printer
+
+1. Close the NIIMBOT app. The serial port can only be used by one program at a time, so stop the vendor helper too (see Cutover).
+2. Click **Connect printer** and choose the NIIMBOT port. The app checks that the printer reports itself as a B21S (model 777).
+3. Pick the label, design it, then click **Print**.
+
+The app releases the printer when you disconnect, close the window or unplug the cable. Only one tab or window can hold the printer at a time.
+
+## Development
+
+```bash
+npm run dev
+```
+
+```bash
+npm test
+```
+
+```bash
+npm run check
+```
+
+- `npm run dev` starts the dev server on port 5179 (no service worker).
+- `npm test` runs the unit tests, the recorded-B21S session and the simulated print jobs.
+- `npm run check` runs lint and typecheck.
+
+Code layout:
+
+| Path | Purpose |
+|---|---|
+| `src/lib/catalogue.ts`, `shapes.ts`, `geometry.ts` | Label shapes, safe areas, mm ↔ dots, printhead window |
+| `src/lib/render/` | Design → 1-bit raster → printer encoding; test pattern |
+| `src/lib/printer/serial-client.ts` | Web Serial transport with the lifecycle fixes (validation V3) |
+| `src/lib/printer/session.ts` | Connection state, heartbeat cadence, cross-tab lock, print jobs and cancel |
+| `src/lib/store/` | IndexedDB templates, roll map, overrides, settings, backup |
+| `src/components/`, `src/app/` | UI |
+| `src/test/` | Recorded B21S dump, fake serial port, simulated printer |
+
+## First hardware test (spec Phase 2 and "First implementation milestone")
+
+Not done yet: this needs the physical printer.
+
+1. Back up the vendor service and driver (from an elevated prompt):
+   - `sc.exe qc jcPrinterService`
+   - `pnputil /export-driver oem10.inf G:\niimbot-investigation-20261011\driver-backup`
+2. Close the NIIMBOT editor. Stop the helper with `sc.exe stop jcPrinterService`. Check in Task Manager that both `jcprinter` and `jcprinterdaemon` have exited.
+3. Open the app and click **Connect printer**. Open **Diagnostics** and record the model, firmware, roll RFID barcode, and whether **Read paper info** answers.
+4. Load 50 mm wide stock and click **Print test pattern**. Check that the border and ruler are not clipped and the pattern is centred. Adjust **Offset** if needed (8 dots ≈ 1 mm).
+5. Click **Disconnect**, then **Connect** again, then print once more.
+6. For each roll shape, print a sample. If the outline or zones are off, measure them and save a correction under **Measured label geometry**.
+
+If connecting fails with "port in use", something else still holds COM3: the NIIMBOT app, its helper, or another tab.
+
+## Cutover and rollback (spec Phase 7)
+
+**Cutover**, after the app has worked reliably:
+
+```bash
+sc.exe config jcPrinterService start= demand
+```
+
+Reboot, then confirm `jcprinter` and `jcprinterdaemon` are not running. Keep the NIIMBOT app and the driver backup for now. Opening the NIIMBOT editor may start the helper again.
+
+**Rollback:**
+
+```bash
+sc.exe config jcPrinterService start= auto
+```
+
+```bash
+sc.exe start jcPrinterService
+```
+
+Then use the NIIMBOT app as before.
+
+## Known limits
+
+- All catalogue shapes are marked unverified until they are measured on real rolls. Jewelry-tag panels and cable flag/wrap zones are estimates.
+- The roll RFID tag gives a barcode and label counts, not the size or shape. The label is chosen once per roll type and remembered.
+- Cancel takes effect between labels. A label that has started printing finishes.
+- NiimBlueLib ships CommonJS only, so its Bluetooth/Capacitor client code cannot be tree-shaken and is included in the bundle (V6). The app never constructs those clients.

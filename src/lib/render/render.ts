@@ -10,6 +10,7 @@ import {
   luminance,
   type MonoBitmap,
   rotateBand180,
+  shiftColumns,
   threshold,
   tileBand,
 } from "./mono";
@@ -52,7 +53,7 @@ export interface RenderEnv {
 
 export interface RenderOptions {
   batchValue?: string | null;
-  /** Horizontal calibration offset in dots. */
+  /** Horizontal calibration in dots: shifts the printed content (positive = right). */
   offsetDots?: number;
   /**
    * "print" (default): exactly what is sent to the printer.
@@ -119,11 +120,13 @@ function drawText(ctx: Ctx2D, el: TextElement, value: string | null, s: number) 
   });
 }
 
-async function drawImage(ctx: Ctx2D, el: ImageElement, env: RenderEnv, s: number) {
+async function drawImage(ctx: Ctx2D, el: ImageElement, env: RenderEnv, s: number, maxDots: number) {
   const img = await env.loadImage(el.src);
+  if (!(img.width > 0 && img.height > 0)) return; // e.g. an SVG without intrinsic size
   const box = contentBox(el, s);
-  const bw = Math.max(1, Math.round(box.w));
-  const bh = Math.max(1, Math.round(box.h));
+  // Anything beyond the label is masked anyway; never allocate more than a label-sized canvas.
+  const bw = Math.max(1, Math.min(Math.round(box.w), maxDots));
+  const bh = Math.max(1, Math.min(Math.round(box.h), maxDots));
   // Fit (contain) the image into the box, then convert to 1-bit at device resolution.
   const scale = Math.min(bw / img.width, bh / img.height);
   const dw = Math.max(1, Math.round(img.width * scale));
@@ -187,7 +190,7 @@ export async function renderLabel(
   opts: RenderOptions = {},
 ): Promise<RenderResult> {
   const s = DOTS_PER_MM;
-  const window = printWindow(spec.widthMm, opts.offsetDots ?? 0);
+  const window = printWindow(spec.widthMm);
   const width = window.labelDots;
   const height = mmToDots(spec.heightMm);
   const canvas = env.createCanvas(width, height);
@@ -197,12 +200,13 @@ export async function renderLabel(
 
   for (const el of design.elements) {
     if (el.kind === "text") drawText(ctx, el, opts.batchValue ?? null, s);
-    else await drawImage(ctx, el, env, s);
+    else await drawImage(ctx, el, env, s, Math.max(width, height));
   }
 
   const gray = luminance(ctx.getImageData(0, 0, width, height).data, width, height);
   const label = threshold(gray, width, height, 128);
   if (opts.view === "design") maskToSafeArea(label, spec);
   else applyShapeTransforms(label, spec, design);
-  return { label, print: cropColumns(label, window.start, window.width), window };
+  const print = shiftColumns(cropColumns(label, window.start, window.width), opts.offsetDots ?? 0);
+  return { label, print, window };
 }

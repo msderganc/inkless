@@ -10,6 +10,8 @@ const config = {
   output: "export",
   images: { unoptimized: true },
   trailingSlash: true,
+  // H:\code has its own package.json; pin the project root so Next does not infer the parent.
+  outputFileTracingRoot: import.meta.dirname,
 };
 
 export default config;
