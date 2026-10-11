@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { resolveLabel } from "./labels";
+import { resolveLabel, suggestLabelsForCapacity } from "./labels";
+
+describe("suggestLabelsForCapacity", () => {
+  it("maps Matthew's roll (capacity 210) to the 31 mm round labels", () => {
+    expect(suggestLabelsForCapacity(210).map((l) => l.id)).toEqual([
+      "round-31",
+      "round-31-clear",
+    ]);
+  });
+  it("returns nothing for unknown or missing capacity", () => {
+    expect(suggestLabelsForCapacity(undefined)).toEqual([]);
+    expect(suggestLabelsForCapacity(9999)).toEqual([]);
+  });
+});
 
 describe("resolveLabel", () => {
   it("finds catalogue labels and applies overrides", () => {

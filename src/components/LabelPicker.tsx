@@ -7,7 +7,7 @@ import {
   type LabelSpec,
   type ShapeFamily,
 } from "~/lib/catalogue";
-import { resolveLabel } from "~/lib/labels";
+import { resolveLabel, suggestLabelsForCapacity } from "~/lib/labels";
 import { useApp, useSessionStatus } from "./app-context";
 
 const FAMILIES: ShapeFamily[] = ["rect", "round", "wave", "jewelry", "cable"];
@@ -51,6 +51,15 @@ export function LabelPicker({
     if (!barcode) return;
     await store.rememberBarcode(barcode, labelId);
     setMapped(labelId);
+  };
+
+  // The tag has no size, but its roll capacity usually identifies the label (e.g. 210 = 31 mm round).
+  const suggestions = suggestLabelsForCapacity(status.rfid?.capacity);
+  const chooseSuggested = async (id: string) => {
+    onChange(id);
+    if (!barcode) return;
+    await store.rememberBarcode(barcode, id);
+    setMapped(id);
   };
 
   const applyCustom = () => {
@@ -127,8 +136,32 @@ export function LabelPicker({
       )}
 
       {barcode && mapped === null && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">
-          New roll detected (barcode {barcode}). Pick its label above, then
+        <div className="space-y-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm">
+          <p>
+            New roll (barcode {barcode}). Its tag does not include the size or
+            shape.
+          </p>
+          {suggestions.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-neutral-600">
+                A {status.rfid?.capacity}-label roll is:
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {suggestions.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    className="rounded border border-sky-300 bg-white px-2 py-0.5 text-sky-800 hover:bg-sky-50"
+                    onClick={() => void chooseSuggested(l.id)}
+                  >
+                    {l.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {suggestions.length > 0 ? "Otherwise pick" : "Pick"} its label above,
+          then
           <button
             type="button"
             className="ml-1 font-medium text-sky-700 underline"
@@ -156,9 +189,9 @@ export function LabelPicker({
       )}
       {status.rfid?.tagPresent && (
         <p className="text-xs text-neutral-500">
-          Labels left on roll:{" "}
-          {Math.max(0, status.rfid.allPaper - status.rfid.usedPaper)} of{" "}
-          {status.rfid.allPaper}
+          {/* Tag counters don't add up to the roll size on real rolls (252 vs 210), so show raw values. */}
+          Roll of {status.rfid.capacity ?? status.rfid.allPaper};{" "}
+          {status.rfid.usedPaper} used
         </p>
       )}
     </section>
