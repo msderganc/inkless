@@ -1,0 +1,87 @@
+/** 1-bit bitmap: one byte per pixel, 1 = black (printed), 0 = white. Row-major. */
+export interface MonoBitmap {
+  width: number;
+  height: number;
+  data: Uint8Array;
+}
+
+export function createMono(width: number, height: number): MonoBitmap {
+  return { width, height, data: new Uint8Array(width * height) };
+}
+
+/** RGBA → luminance (0 = black, 255 = white). Transparent pixels count as white paper. */
+export function luminance(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number): Uint8Array {
+  const out = new Uint8Array(width * height);
+  for (let i = 0, p = 0; i < out.length; i++, p += 4) {
+    const a = rgba[p + 3]! / 255;
+    const l = 0.299 * rgba[p]! + 0.587 * rgba[p + 1]! + 0.114 * rgba[p + 2]!;
+    out[i] = Math.round(l * a + 255 * (1 - a));
+  }
+  return out;
+}
+
+export function threshold(gray: Uint8Array, width: number, height: number, level = 128): MonoBitmap {
+  const bmp = createMono(width, height);
+  for (let i = 0; i < gray.length; i++) bmp.data[i] = gray[i]! < level ? 1 : 0;
+  return bmp;
+}
+
+/** Floyd–Steinberg error diffusion to 1 bit. */
+export function dither(gray: Uint8Array, width: number, height: number): MonoBitmap {
+  const buf = Float32Array.from(gray);
+  const bmp = createMono(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const old = buf[i]!;
+      const black = old < 128;
+      bmp.data[i] = black ? 1 : 0;
+      const err = old - (black ? 0 : 255);
+      if (x + 1 < width) buf[i + 1]! += (err * 7) / 16;
+      if (y + 1 < height) {
+        if (x > 0) buf[i + width - 1]! += (err * 3) / 16;
+        buf[i + width]! += (err * 5) / 16;
+        if (x + 1 < width) buf[i + width + 1]! += err / 16;
+      }
+    }
+  }
+  return bmp;
+}
+
+export function invert(bmp: MonoBitmap): MonoBitmap {
+  return { ...bmp, data: bmp.data.map((v) => (v ? 0 : 1)) };
+}
+
+/** Rotate rows [y0, y0+h) by 180° in place (jewelry panel 1). */
+export function rotateBand180(bmp: MonoBitmap, y0: number, h: number): void {
+  const start = Math.max(0, y0);
+  const end = Math.min(bmp.height, y0 + h);
+  const band = bmp.data.slice(start * bmp.width, end * bmp.width);
+  band.reverse();
+  bmp.data.set(band, start * bmp.width);
+}
+
+/** Fill rows [y0, y0+h) by tiling rows [src0, src0+srcH) (cable wrap repeat). */
+export function tileBand(bmp: MonoBitmap, src0: number, srcH: number, y0: number, h: number): void {
+  if (srcH <= 0) return;
+  const w = bmp.width;
+  const src = bmp.data.slice(src0 * w, (src0 + srcH) * w);
+  for (let y = 0; y < h && y0 + y < bmp.height; y++) {
+    const row = y % srcH;
+    bmp.data.set(src.subarray(row * w, (row + 1) * w), (y0 + y) * w);
+  }
+}
+
+export function cropColumns(bmp: MonoBitmap, start: number, width: number): MonoBitmap {
+  const out = createMono(width, bmp.height);
+  for (let y = 0; y < bmp.height; y++) {
+    out.data.set(bmp.data.subarray(y * bmp.width + start, y * bmp.width + start + width), y * width);
+  }
+  return out;
+}
+
+export function blackCount(bmp: MonoBitmap): number {
+  let n = 0;
+  for (const v of bmp.data) n += v;
+  return n;
+}

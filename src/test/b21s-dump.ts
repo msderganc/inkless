@@ -1,0 +1,23 @@
+/**
+ * Recorded B21S firmware 40.28 session from NiimBlueLib's test suite (src/test/dumps.ts,
+ * `B21S_V40_28`), version 0.47.0. Copyright (c) 2024 MultiMote, MIT License.
+ * `>>` = host to printer, `<<` = printer to host.
+ */
+export const B21S_V40_28 = `
+>> 035555c10101c1aaaa
+<< 5555c20103c0aaaa
+>> 5555a50101a5aaaa
+<< 5555b50d3030032000c80000001400020346aaaa
+>> 555540010849aaaa
+<< 55554802030940aaaa
+>> 555540010b4aaaaa
+<< 55554b0a473632363037303038373caaaa
+>> 5555dc0101dcaaaa
+<< 5555dd0d1f340095009500005400030001adaaaa
+>> 55551a01011aaaaa
+<< 55551b27881d91af2b07108008313032363232363010505a3147363137333137303031383436011400050153aaaa
+>> 555540010c4daaaa
+<< 55554c02280a6caaaa
+>> 555540010948aaaa
+<< 55554902281c7faaaa
+`;
