@@ -24,7 +24,8 @@ describe("testPattern", () => {
     const fill = (b: number) => {
       let n = 0;
       const x0 = mmToDots(3) + b * blockW + 2;
-      for (let y = y0; y < y0 + 16; y++) for (let x = x0; x < x0 + 16; x++) n += p.data[y * p.width + x]!;
+      for (let y = y0; y < y0 + 16; y++)
+        for (let x = x0; x < x0 + 16; x++) n += p.data[y * p.width + x]!;
       return n;
     };
     const fills = [0, 1, 2, 3, 4].map(fill);

@@ -104,6 +104,8 @@ describe("B21SerialClient", () => {
 
   it("refuses to send when disconnected", async () => {
     const { client } = setup();
-    await expect(client.sendRaw(new Uint8Array([1]))).rejects.toThrow(/not connected/);
+    await expect(client.sendRaw(new Uint8Array([1]))).rejects.toThrow(
+      /not connected/,
+    );
   });
 });

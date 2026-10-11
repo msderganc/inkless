@@ -1,13 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CATALOGUE, FAMILY_NAMES, type LabelSpec, type ShapeFamily } from "~/lib/catalogue";
+import {
+  CATALOGUE,
+  FAMILY_NAMES,
+  type LabelSpec,
+  type ShapeFamily,
+} from "~/lib/catalogue";
 import { resolveLabel } from "~/lib/labels";
 import { useApp, useSessionStatus } from "./app-context";
 
 const FAMILIES: ShapeFamily[] = ["rect", "round", "wave", "jewelry", "cable"];
 
-export function LabelPicker({ labelId, onChange }: { labelId: string; onChange: (id: string) => void }) {
+export function LabelPicker({
+  labelId,
+  onChange,
+}: {
+  labelId: string;
+  onChange: (id: string) => void;
+}) {
   const { store, session, overrides } = useApp();
   const status = useSessionStatus(session);
   const barcode = status.rfid?.tagPresent ? status.rfid.barCode : undefined;
@@ -51,12 +62,16 @@ export function LabelPicker({ labelId, onChange }: { labelId: string; onChange: 
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">Label</h2>
+      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+        Label
+      </h2>
       <select
         aria-label="Label size and shape"
         className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5"
         value={isCustom ? "custom" : labelId}
-        onChange={(e) => (e.target.value === "custom" ? applyCustom() : onChange(e.target.value))}
+        onChange={(e) =>
+          e.target.value === "custom" ? applyCustom() : onChange(e.target.value)
+        }
       >
         {FAMILIES.map((f) => (
           <optgroup key={f} label={FAMILY_NAMES[f]}>
@@ -74,13 +89,31 @@ export function LabelPicker({ labelId, onChange }: { labelId: string; onChange: 
         <div className="flex items-end gap-2 text-sm">
           <label className="flex flex-col">
             Width mm
-            <input className="w-20 rounded border px-2 py-1" type="number" min={5} max={50} value={customW} onChange={(e) => setCustomW(e.target.value)} />
+            <input
+              className="w-20 rounded border px-2 py-1"
+              type="number"
+              min={5}
+              max={50}
+              value={customW}
+              onChange={(e) => setCustomW(e.target.value)}
+            />
           </label>
           <label className="flex flex-col">
             Length mm
-            <input className="w-20 rounded border px-2 py-1" type="number" min={5} max={200} value={customH} onChange={(e) => setCustomH(e.target.value)} />
+            <input
+              className="w-20 rounded border px-2 py-1"
+              type="number"
+              min={5}
+              max={200}
+              value={customH}
+              onChange={(e) => setCustomH(e.target.value)}
+            />
           </label>
-          <button type="button" className="rounded border px-2 py-1 hover:bg-neutral-100" onClick={applyCustom}>
+          <button
+            type="button"
+            className="rounded border px-2 py-1 hover:bg-neutral-100"
+            onClick={applyCustom}
+          >
             Apply
           </button>
         </div>
@@ -88,14 +121,19 @@ export function LabelPicker({ labelId, onChange }: { labelId: string; onChange: 
 
       {spec && !spec.verified && (
         <p className="text-xs text-amber-700">
-          Shape not yet measured on a real roll. Check the first print; adjust it under Diagnostics if needed.
+          Shape not yet measured on a real roll. Check the first print; adjust
+          it under Diagnostics if needed.
         </p>
       )}
 
       {barcode && mapped === null && (
         <div className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">
           New roll detected (barcode {barcode}). Pick its label above, then
-          <button type="button" className="ml-1 font-medium text-sky-700 underline" onClick={() => void remember()}>
+          <button
+            type="button"
+            className="ml-1 font-medium text-sky-700 underline"
+            onClick={() => void remember()}
+          >
             remember this roll
           </button>
           .
@@ -103,9 +141,14 @@ export function LabelPicker({ labelId, onChange }: { labelId: string; onChange: 
       )}
       {barcode && mapped && (
         <p className="text-xs text-neutral-500">
-          Roll {barcode} is remembered as {resolveLabel(mapped, overrides)?.name ?? mapped}.
+          Roll {barcode} is remembered as{" "}
+          {resolveLabel(mapped, overrides)?.name ?? mapped}.
           {mapped !== labelId && (
-            <button type="button" className="ml-1 text-sky-700 underline" onClick={() => void remember()}>
+            <button
+              type="button"
+              className="ml-1 text-sky-700 underline"
+              onClick={() => void remember()}
+            >
               Update to current label
             </button>
           )}
@@ -113,7 +156,9 @@ export function LabelPicker({ labelId, onChange }: { labelId: string; onChange: 
       )}
       {status.rfid?.tagPresent && (
         <p className="text-xs text-neutral-500">
-          Labels left on roll: {Math.max(0, status.rfid.allPaper - status.rfid.usedPaper)} of {status.rfid.allPaper}
+          Labels left on roll:{" "}
+          {Math.max(0, status.rfid.allPaper - status.rfid.usedPaper)} of{" "}
+          {status.rfid.allPaper}
         </p>
       )}
     </section>

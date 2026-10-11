@@ -26,13 +26,21 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
   const { session } = useApp();
   const status = useSessionStatus(session);
   const { state, identity, heartbeat, error, progress } = status;
-  const connected = state === "ready" || state === "printing" || state === "cancelling";
+  const connected =
+    state === "ready" || state === "printing" || state === "cancelling";
 
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-neutral-200 bg-white px-4 py-2 text-sm">
       <span className="font-semibold">B21S Labels</span>
-      <span className="flex items-center gap-2" role="status" aria-live="polite">
-        <span className={`inline-block size-2.5 rounded-full ${STATE_DOT[state]}`} aria-hidden />
+      <span
+        className="flex items-center gap-2"
+        role="status"
+        aria-live="polite"
+      >
+        <span
+          className={`inline-block size-2.5 rounded-full ${STATE_DOT[state]}`}
+          aria-hidden
+        />
         {STATE_TEXT[state]}
         {progress && (state === "printing" || state === "cancelling") && (
           <span className="text-neutral-500">
@@ -54,7 +62,10 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
       )}
       {error && <span className="text-red-700">{error}</span>}
       <span className="ml-auto flex items-center gap-3">
-        <Link className="text-sky-700 underline-offset-2 hover:underline" href={page === "editor" ? "/diagnostics/" : "/"}>
+        <Link
+          className="text-sky-700 underline-offset-2 hover:underline"
+          href={page === "editor" ? "/diagnostics/" : "/"}
+        >
           {page === "editor" ? "Diagnostics" : "Editor"}
         </Link>
         {connected ? (

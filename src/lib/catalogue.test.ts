@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyOverride, CATALOGUE, customRect, findLabel, SAFE_MARGIN_MM } from "./catalogue";
+import {
+  applyOverride,
+  CATALOGUE,
+  customRect,
+  findLabel,
+  SAFE_MARGIN_MM,
+} from "./catalogue";
 import { dotsToMm, printWindow } from "./geometry";
 import { regionContains, safeRegion } from "./shapes";
 
@@ -27,8 +33,12 @@ describe("catalogue", () => {
         for (let x = 0; x <= spec.widthMm; x += 0.25) {
           if (!regionContains(region, x, y)) continue;
           inside++;
-          expect(x).toBeGreaterThanOrEqual(Math.max(SAFE_MARGIN_MM, minX) - 1e-9);
-          expect(x).toBeLessThanOrEqual(Math.min(spec.widthMm - SAFE_MARGIN_MM, maxX) + 1e-9);
+          expect(x).toBeGreaterThanOrEqual(
+            Math.max(SAFE_MARGIN_MM, minX) - 1e-9,
+          );
+          expect(x).toBeLessThanOrEqual(
+            Math.min(spec.widthMm - SAFE_MARGIN_MM, maxX) + 1e-9,
+          );
           expect(y).toBeGreaterThanOrEqual(SAFE_MARGIN_MM - 1e-9);
           expect(y).toBeLessThanOrEqual(spec.heightMm - SAFE_MARGIN_MM + 1e-9);
         }
@@ -73,14 +83,20 @@ describe("catalogue", () => {
 
 describe("customRect", () => {
   it("builds a rectangle", () => {
-    expect(customRect(45, 25)).toMatchObject({ family: "rect", widthMm: 45, heightMm: 25 });
+    expect(customRect(45, 25)).toMatchObject({
+      family: "rect",
+      widthMm: 45,
+      heightMm: 25,
+    });
   });
   it.each([
     [0, 10],
     [51, 10],
     [40, 0],
     [40, 201],
-  ])("rejects %d × %d", (w, h) => expect(() => customRect(w, h)).toThrow(RangeError));
+  ])("rejects %d × %d", (w, h) =>
+    expect(() => customRect(w, h)).toThrow(RangeError),
+  );
 });
 
 describe("applyOverride", () => {

@@ -8,7 +8,8 @@ export class RingLog<T> {
 
   push(item: T) {
     this.items.push(item);
-    if (this.items.length > this.capacity) this.items.splice(0, this.items.length - this.capacity);
+    if (this.items.length > this.capacity)
+      this.items.splice(0, this.items.length - this.capacity);
   }
 
   toArray(): T[] {

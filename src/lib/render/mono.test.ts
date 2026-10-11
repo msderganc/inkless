@@ -13,13 +13,17 @@ import {
 
 export const bmpFrom = (w: number, rows: string[]) => {
   const b = createMono(w, rows.length);
-  rows.forEach((r, y) => [...r].forEach((c, x) => (b.data[y * w + x] = c === "#" ? 1 : 0)));
+  rows.forEach((r, y) =>
+    [...r].forEach((c, x) => (b.data[y * w + x] = c === "#" ? 1 : 0)),
+  );
   return b;
 };
 
 export const rowsOf = (b: MonoBitmap) =>
   Array.from({ length: b.height }, (_, y) =>
-    [...b.data.subarray(y * b.width, (y + 1) * b.width)].map((v) => (v ? "#" : ".")).join(""),
+    [...b.data.subarray(y * b.width, (y + 1) * b.width)]
+      .map((v) => (v ? "#" : "."))
+      .join(""),
   );
 
 describe("mono", () => {
@@ -29,7 +33,9 @@ describe("mono", () => {
   });
 
   it("threshold", () => {
-    expect([...threshold(new Uint8Array([0, 127, 128, 255]), 4, 1).data]).toEqual([1, 1, 0, 0]);
+    expect([
+      ...threshold(new Uint8Array([0, 127, 128, 255]), 4, 1).data,
+    ]).toEqual([1, 1, 0, 0]);
   });
 
   it("dither keeps the darkness of mid-grey near 50%", () => {
@@ -40,7 +46,9 @@ describe("mono", () => {
   });
 
   it("dither maps pure black and white exactly", () => {
-    expect([...dither(new Uint8Array([0, 255, 0, 255]), 2, 2).data]).toEqual([1, 0, 1, 0]);
+    expect([...dither(new Uint8Array([0, 255, 0, 255]), 2, 2).data]).toEqual([
+      1, 0, 1, 0,
+    ]);
   });
 
   it("rotateBand180 rotates only the band", () => {
@@ -56,6 +64,9 @@ describe("mono", () => {
   });
 
   it("cropColumns", () => {
-    expect(rowsOf(cropColumns(bmpFrom(4, ["#..#", ".##."]), 1, 2))).toEqual(["..", "##"]);
+    expect(rowsOf(cropColumns(bmpFrom(4, ["#..#", ".##."]), 1, 2))).toEqual([
+      "..",
+      "##",
+    ]);
   });
 });

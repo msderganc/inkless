@@ -1,4 +1,10 @@
-import { type AbstractPrintTask, type EncodedImage, LabelType, PrintError, PrinterErrorCode } from "@mmote/niimbluelib";
+import {
+  type AbstractPrintTask,
+  type EncodedImage,
+  LabelType,
+  PrintError,
+  PrinterErrorCode,
+} from "@mmote/niimbluelib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { B21S_V40_28 } from "~/test/b21s-dump";
 import { FakeSerialPort, parseDump } from "~/test/fake-serial-port";
@@ -40,7 +46,11 @@ class FakeTask {
   async printPage(_img: EncodedImage, qty?: number) {
     this.page++;
     this.calls.push(`page${this.page}x${qty}`);
-    if (this.failOnPage === this.page) throw new PrintError("Print error 1: CoverOpen", PrinterErrorCode.CoverOpen);
+    if (this.failOnPage === this.page)
+      throw new PrintError(
+        "Print error 1: CoverOpen",
+        PrinterErrorCode.CoverOpen,
+      );
   }
   async waitForPageFinished() {
     if (this.autoFinish) return;
@@ -57,12 +67,24 @@ class FakeTask {
 const image: EncodedImage = { cols: 8, rows: 1, rowsData: [], pageColor: 0 };
 
 function job(pageCount: number, copies = 1): PrintJob {
-  return { pageCount, copies, density: DEFAULT_DENSITY, labelType: LabelType.WithGaps, renderPage: async () => image };
+  return {
+    pageCount,
+    copies,
+    density: DEFAULT_DENSITY,
+    labelType: LabelType.WithGaps,
+    renderPage: async () => image,
+  };
 }
 
 let session: PrinterSession | undefined;
 
-function setup(opts: { table?: Map<string, Uint8Array>; lockBusy?: boolean; now?: () => number } = {}) {
+function setup(
+  opts: {
+    table?: Map<string, Uint8Array>;
+    lockBusy?: boolean;
+    now?: () => number;
+  } = {},
+) {
   const port = new FakeSerialPort(opts.table ?? B21S);
   const task = new FakeTask();
   let client: B21SerialClient | undefined;
@@ -94,17 +116,27 @@ describe("PrinterSession connection", () => {
     await session.connect();
     const s = session.getStatus();
     expect(s.state).toBe("ready");
-    expect(s.identity).toMatchObject({ modelId: 777, model: "B21S", serial: "G626070087" });
+    expect(s.identity).toMatchObject({
+      modelId: 777,
+      model: "B21S",
+      serial: "G626070087",
+    });
     expect(s.identity?.firmware).toMatch(/40\.28/);
     expect(s.rfid?.barCode).toBeTruthy();
-    expect(states.filter((s, i) => s !== states[i - 1])).toEqual(["disconnected", "connecting", "ready"]);
+    expect(states.filter((s, i) => s !== states[i - 1])).toEqual([
+      "disconnected",
+      "connecting",
+      "ready",
+    ]);
   });
 
   it("rejects printers other than the B21S and closes the port", async () => {
     const { session, port, released } = setup({ table: OTHER_MODEL });
     await session.connect();
     expect(session.getStatus()).toMatchObject({ state: "error" });
-    expect(session.getStatus().error).toMatch(/Unsupported printer \(model id 257\)/);
+    expect(session.getStatus().error).toMatch(
+      /Unsupported printer \(model id 257\)/,
+    );
     expect(port.isOpen).toBe(false);
     expect(released.count).toBe(1);
   });
@@ -156,18 +188,24 @@ describe("PrinterSession heartbeat cadence", () => {
     await session.connect();
     const c = client();
     expect(c.getHeartbeatInterval()).toBe(HEARTBEAT_ACTIVE_MS);
-    expect((c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer).toBeDefined();
+    expect(
+      (c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer,
+    ).toBeDefined();
 
     t += ACTIVE_WINDOW_MS + 1;
     await new Promise((r) => setTimeout(r, 1_100));
     expect(c.getHeartbeatInterval()).toBe(HEARTBEAT_IDLE_MS);
 
     session.setVisible(false);
-    expect((c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer).toBeUndefined();
+    expect(
+      (c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer,
+    ).toBeUndefined();
 
     session.setVisible(true);
     expect(c.getHeartbeatInterval()).toBe(HEARTBEAT_ACTIVE_MS);
-    expect((c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer).toBeDefined();
+    expect(
+      (c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer,
+    ).toBeDefined();
   });
 });
 
@@ -179,7 +217,13 @@ describe("PrinterSession printing", () => {
     session.subscribe((s) => s.progress && progress.push(s.progress.done));
     const out = await session.print(job(3, 2));
     expect(out).toEqual({ status: "completed", printed: 3 });
-    expect(task.calls).toEqual(["init", "page1x2", "page2x2", "page3x2", "end"]);
+    expect(task.calls).toEqual([
+      "init",
+      "page1x2",
+      "page2x2",
+      "page3x2",
+      "end",
+    ]);
     expect(session.getStatus().state).toBe("ready");
     expect(progress.at(-1)).toBe(3);
   });
@@ -205,9 +249,16 @@ describe("PrinterSession printing", () => {
     await session.connect();
     task.failOnPage = 2;
     const out = await session.print(job(3));
-    expect(out).toEqual({ status: "failed", printed: 1, error: "The printer lid is open." });
+    expect(out).toEqual({
+      status: "failed",
+      printed: 1,
+      error: "The printer lid is open.",
+    });
     expect(task.calls).toEqual(["init", "page1x1", "page2x1", "end"]);
-    expect(session.getStatus()).toMatchObject({ state: "ready", error: "The printer lid is open." });
+    expect(session.getStatus()).toMatchObject({
+      state: "ready",
+      error: "The printer lid is open.",
+    });
   });
 
   it("allows only one job at a time and validates parameters", async () => {
@@ -222,7 +273,9 @@ describe("PrinterSession printing", () => {
     await first;
     await expect(session.print(job(0))).rejects.toThrow(/Nothing/);
     await expect(session.print(job(1, 101))).rejects.toThrow(/Copies/);
-    await expect(session.print({ ...job(1), density: 6 })).rejects.toThrow(/Density/);
+    await expect(session.print({ ...job(1), density: 6 })).rejects.toThrow(
+      /Density/,
+    );
   });
 
   it("an unplug mid-job ends in an error state", async () => {
@@ -247,8 +300,12 @@ describe("PrinterSession diagnostics", () => {
     session.setPacketLogging(true);
     await session.refreshRfid();
     const log = session.getPacketLog();
-    expect(log.some((e) => e.dir === ">>" && e.hex.startsWith("55 55 1a"))).toBe(true);
-    expect(log.some((e) => e.dir === "<<" && e.hex.startsWith("55 55 1b"))).toBe(true);
+    expect(
+      log.some((e) => e.dir === ">>" && e.hex.startsWith("55 55 1a")),
+    ).toBe(true);
+    expect(
+      log.some((e) => e.dir === "<<" && e.hex.startsWith("55 55 1b")),
+    ).toBe(true);
     expect(log.length).toBeLessThanOrEqual(500);
     session.setPacketLogging(false);
     expect(session.getPacketLog()).toEqual([]);

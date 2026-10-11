@@ -1,7 +1,9 @@
 import { type SerialPortLike } from "~/lib/printer/serial-client";
 
-const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
-const unhex = (s: string) => new Uint8Array(s.match(/../g)!.map((h) => parseInt(h, 16)));
+const hex = (b: Uint8Array) =>
+  [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+const unhex = (s: string) =>
+  new Uint8Array(s.match(/../g)!.map((h) => parseInt(h, 16)));
 
 /** "Feature not supported" reply, as NiimBlueLib's virtual client sends for unknown requests. */
 const NOT_SUPPORTED = unhex("555500010100aaaa");
@@ -45,12 +47,20 @@ export class FakeSerialPort extends EventTarget implements SerialPortLike {
     super();
   }
 
-  override addEventListener(type: string, cb: EventListenerOrEventListenerObject | null, o?: AddEventListenerOptions | boolean) {
+  override addEventListener(
+    type: string,
+    cb: EventListenerOrEventListenerObject | null,
+    o?: AddEventListenerOptions | boolean,
+  ) {
     this.listeners.set(type, (this.listeners.get(type) ?? 0) + 1);
     super.addEventListener(type, cb, o);
   }
 
-  override removeEventListener(type: string, cb: EventListenerOrEventListenerObject | null, o?: EventListenerOptions | boolean) {
+  override removeEventListener(
+    type: string,
+    cb: EventListenerOrEventListenerObject | null,
+    o?: EventListenerOptions | boolean,
+  ) {
     this.listeners.set(type, (this.listeners.get(type) ?? 0) - 1);
     super.removeEventListener(type, cb, o);
   }
@@ -60,7 +70,8 @@ export class FakeSerialPort extends EventTarget implements SerialPortLike {
   }
 
   async open(): Promise<void> {
-    if (this.isOpen) throw new DOMException("The port is already open.", "InvalidStateError");
+    if (this.isOpen)
+      throw new DOMException("The port is already open.", "InvalidStateError");
     this.opens++;
     this.readable = new ReadableStream<Uint8Array>({
       start: (c) => {
@@ -91,7 +102,11 @@ export class FakeSerialPort extends EventTarget implements SerialPortLike {
   }
 
   async close(): Promise<void> {
-    if (!this.isOpen) throw new DOMException("The port is already closed.", "InvalidStateError");
+    if (!this.isOpen)
+      throw new DOMException(
+        "The port is already closed.",
+        "InvalidStateError",
+      );
     if (this.readable!.locked || this.writable!.locked) {
       throw new TypeError("Cannot close a port with locked streams");
     }
@@ -117,7 +132,9 @@ export class FakeSerialPort extends EventTarget implements SerialPortLike {
   /** Simulate unplugging the cable. */
   unplug() {
     try {
-      this.controller?.error(new DOMException("The device has been lost.", "NetworkError"));
+      this.controller?.error(
+        new DOMException("The device has been lost.", "NetworkError"),
+      );
     } catch {
       // ignore
     }

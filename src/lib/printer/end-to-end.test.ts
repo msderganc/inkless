@@ -31,14 +31,21 @@ describe("end to end with the real D110 print task", () => {
     expect(session.getStatus().state).toBe("ready");
 
     const spec = findLabel("rect-50x30")!;
-    const design = { ...emptyDesign(spec.id), elements: [{ ...newText(2, 2, 46, 26), text: "BIN {n}" }] };
+    const design = {
+      ...emptyDesign(spec.id),
+      elements: [{ ...newText(2, 2, 46, 26), text: "BIN {n}" }],
+    };
     const values = ["A1", "A2", "A3"];
     const out = await session.print({
       pageCount: values.length,
       copies: 2,
       density: 3,
       labelType: labelTypeFor(spec.stock),
-      renderPage: async (i) => encodeForPrinter((await renderLabel(design, spec, nodeEnv, { batchValue: values[i]! })).print),
+      renderPage: async (i) =>
+        encodeForPrinter(
+          (await renderLabel(design, spec, nodeEnv, { batchValue: values[i]! }))
+            .print,
+        ),
     });
 
     expect(out).toEqual({ status: "completed", printed: 3 });
@@ -62,9 +69,15 @@ describe("end to end with the real D110 print task", () => {
       copies: 1,
       density: 3,
       labelType: labelTypeFor("clear"),
-      renderPage: async () => encodeForPrinter((await renderLabel(emptyDesign(spec.id), spec, nodeEnv)).print),
+      renderPage: async () =>
+        encodeForPrinter(
+          (await renderLabel(emptyDesign(spec.id), spec, nodeEnv)).print,
+        ),
     });
-    expect(out).toMatchObject({ status: "failed", error: "The printer lid is open." });
+    expect(out).toMatchObject({
+      status: "failed",
+      error: "The printer lid is open.",
+    });
     expect(port.labelType).toBe(LabelType.Transparent);
     expect(port.ended).toBe(1);
   }, 30_000);

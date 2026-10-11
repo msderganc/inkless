@@ -1,7 +1,17 @@
 import { type LabelSpec } from "../catalogue";
 import { substitute } from "../batch";
-import { type Design, type DesignElement, type ImageElement, type TextElement } from "../design";
-import { DOTS_PER_MM, mmToDots, printWindow, type PrintWindow } from "../geometry";
+import {
+  type Design,
+  type DesignElement,
+  type ImageElement,
+  type TextElement,
+} from "../design";
+import {
+  DOTS_PER_MM,
+  mmToDots,
+  printWindow,
+  type PrintWindow,
+} from "../geometry";
 import { regionContains, safeRegion } from "../shapes";
 import {
   cropColumns,
@@ -29,8 +39,19 @@ export interface Ctx2D {
   fillRect(x: number, y: number, w: number, h: number): void;
   fillText(text: string, x: number, y: number): void;
   measureText(text: string): { width: number };
-  drawImage(img: unknown, dx: number, dy: number, dw?: number, dh?: number): void;
-  getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray };
+  drawImage(
+    img: unknown,
+    dx: number,
+    dy: number,
+    dw?: number,
+    dh?: number,
+  ): void;
+  getImageData(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): { data: Uint8ClampedArray };
   putImageData(data: unknown, x: number, y: number): void;
   createImageData(w: number, h: number): { data: Uint8ClampedArray };
 }
@@ -78,7 +99,12 @@ function contentBox(el: DesignElement, s: number) {
   return { w: (sideways ? el.h : el.w) * s, h: (sideways ? el.w : el.h) * s };
 }
 
-function withElementTransform(ctx: Ctx2D, el: DesignElement, s: number, draw: (w: number, h: number) => void) {
+function withElementTransform(
+  ctx: Ctx2D,
+  el: DesignElement,
+  s: number,
+  draw: (w: number, h: number) => void,
+) {
   const box = contentBox(el, s);
   ctx.save();
   ctx.translate((el.x + el.w / 2) * s, (el.y + el.h / 2) * s);
@@ -94,7 +120,14 @@ const fontString = (el: TextElement, px: number) =>
 export const LINE_HEIGHT = 1.15;
 
 /** Font size in px after auto-fit, for `lines` in a `w`×`h` px box. */
-export function fitFontPx(ctx: Ctx2D, el: TextElement, lines: string[], w: number, h: number, s: number): number {
+export function fitFontPx(
+  ctx: Ctx2D,
+  el: TextElement,
+  lines: string[],
+  w: number,
+  h: number,
+  s: number,
+): number {
   let px = el.fontSizeMm * s;
   if (!el.autoFit) return px;
   ctx.font = fontString(el, px);
@@ -105,7 +138,12 @@ export function fitFontPx(ctx: Ctx2D, el: TextElement, lines: string[], w: numbe
   return Math.max(1, px);
 }
 
-function drawText(ctx: Ctx2D, el: TextElement, value: string | null, s: number) {
+function drawText(
+  ctx: Ctx2D,
+  el: TextElement,
+  value: string | null,
+  s: number,
+) {
   const lines = substitute(el.text, value).split(/\r?\n/);
   withElementTransform(ctx, el, s, (w, h) => {
     const px = fitFontPx(ctx, el, lines, w, h, s);
@@ -120,7 +158,13 @@ function drawText(ctx: Ctx2D, el: TextElement, value: string | null, s: number) 
   });
 }
 
-async function drawImage(ctx: Ctx2D, el: ImageElement, env: RenderEnv, s: number, maxDots: number) {
+async function drawImage(
+  ctx: Ctx2D,
+  el: ImageElement,
+  env: RenderEnv,
+  s: number,
+  maxDots: number,
+) {
   const img = await env.loadImage(el.src);
   if (!(img.width > 0 && img.height > 0)) return; // e.g. an SVG without intrinsic size
   const box = contentBox(el, s);
@@ -136,9 +180,17 @@ async function drawImage(ctx: Ctx2D, el: ImageElement, env: RenderEnv, s: number
   t.imageSmoothingEnabled = true;
   t.fillStyle = "#fff";
   t.fillRect(0, 0, bw, bh);
-  t.drawImage(img, Math.floor((bw - dw) / 2), Math.floor((bh - dh) / 2), dw, dh);
+  t.drawImage(
+    img,
+    Math.floor((bw - dw) / 2),
+    Math.floor((bh - dh) / 2),
+    dw,
+    dh,
+  );
   const gray = luminance(t.getImageData(0, 0, bw, bh).data, bw, bh);
-  let mono = el.dither ? dither(gray, bw, bh) : threshold(gray, bw, bh, el.threshold);
+  let mono = el.dither
+    ? dither(gray, bw, bh)
+    : threshold(gray, bw, bh, el.threshold);
   if (el.invert) mono = invert(mono);
   const out = t.createImageData(bw, bh);
   for (let i = 0; i < mono.data.length; i++) {
@@ -158,18 +210,28 @@ export function maskToSafeArea(bmp: MonoBitmap, spec: LabelSpec): void {
     const ym = (y + 0.5) / DOTS_PER_MM;
     for (let x = 0; x < bmp.width; x++) {
       const i = y * bmp.width + x;
-      if (bmp.data[i] && !regionContains(region, (x + 0.5) / DOTS_PER_MM, ym)) bmp.data[i] = 0;
+      if (bmp.data[i] && !regionContains(region, (x + 0.5) / DOTS_PER_MM, ym))
+        bmp.data[i] = 0;
     }
   }
 }
 
 /** Shape-specific post-processing in device space (V5: x across head, y along feed). */
-export function applyShapeTransforms(bmp: MonoBitmap, spec: LabelSpec, design: Design): void {
+export function applyShapeTransforms(
+  bmp: MonoBitmap,
+  spec: LabelSpec,
+  design: Design,
+): void {
   if (spec.family === "jewelry" && spec.panels) {
     const p = spec.panels[1];
     rotateBand180(bmp, mmToDots(p.y), mmToDots(p.y + p.height) - mmToDots(p.y));
   }
-  if (spec.family === "cable" && spec.flag && spec.wrap && design.repeatInWrap) {
+  if (
+    spec.family === "cable" &&
+    spec.flag &&
+    spec.wrap &&
+    design.repeatInWrap
+  ) {
     const f0 = mmToDots(spec.flag.y);
     const fh = mmToDots(spec.flag.y + spec.flag.height) - f0;
     const w0 = mmToDots(spec.wrap.y);
@@ -203,10 +265,17 @@ export async function renderLabel(
     else await drawImage(ctx, el, env, s, Math.max(width, height));
   }
 
-  const gray = luminance(ctx.getImageData(0, 0, width, height).data, width, height);
+  const gray = luminance(
+    ctx.getImageData(0, 0, width, height).data,
+    width,
+    height,
+  );
   const label = threshold(gray, width, height, 128);
   if (opts.view === "design") maskToSafeArea(label, spec);
   else applyShapeTransforms(label, spec, design);
-  const print = shiftColumns(cropColumns(label, window.start, window.width), opts.offsetDots ?? 0);
+  const print = shiftColumns(
+    cropColumns(label, window.start, window.width),
+    opts.offsetDots ?? 0,
+  );
   return { label, print, window };
 }

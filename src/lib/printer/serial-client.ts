@@ -56,7 +56,8 @@ export class B21SerialClient extends NiimbotAbstractClient {
       await port.open({ baudRate: 115200 });
     } catch (e) {
       // A previous session may have left this port open (e.g. a close that failed). Retry once.
-      if (!(e instanceof DOMException && e.name === "InvalidStateError")) throw e;
+      if (!(e instanceof DOMException && e.name === "InvalidStateError"))
+        throw e;
       await port.close().catch(() => undefined);
       await port.open({ baudRate: 115200 });
     }
@@ -88,7 +89,9 @@ export class B21SerialClient extends NiimbotAbstractClient {
     return result;
   }
 
-  private async pump(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  private async pump(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): Promise<void> {
     for (;;) {
       let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
@@ -123,7 +126,8 @@ export class B21SerialClient extends NiimbotAbstractClient {
     catchErrorPackets = true,
     timeoutMs = 1000,
   ): Promise<NiimbotPacket> {
-    if (!this.isConnected()) return Promise.reject(new Error("Printer is not connected"));
+    if (!this.isConnected())
+      return Promise.reject(new Error("Printer is not connected"));
     return new Promise<NiimbotPacket>((resolve, reject) => {
       this.waiters.add(reject);
       super
@@ -139,7 +143,8 @@ export class B21SerialClient extends NiimbotAbstractClient {
     const lost = new Error("The printer disconnected.");
     for (const reject of this.waiters) reject(lost);
     this.waiters.clear();
-    if (this.onPortDisconnect) port.removeEventListener("disconnect", this.onPortDisconnect);
+    if (this.onPortDisconnect)
+      port.removeEventListener("disconnect", this.onPortDisconnect);
     this.onPortDisconnect = undefined;
 
     const reader = this.reader;
@@ -160,7 +165,9 @@ export class B21SerialClient extends NiimbotAbstractClient {
           () => true,
           () => false,
         ),
-        new Promise<boolean>((r) => setTimeout(() => r(false), WRITER_CLOSE_GRACE_MS)),
+        new Promise<boolean>((r) =>
+          setTimeout(() => r(false), WRITER_CLOSE_GRACE_MS),
+        ),
       ]);
       if (!flushed) await writer.abort().catch(() => undefined);
       writer.releaseLock();
@@ -176,13 +183,18 @@ export class B21SerialClient extends NiimbotAbstractClient {
   }
 
   public isConnected(): boolean {
-    return this.port !== undefined && this.writer !== undefined && this.reader !== undefined;
+    return (
+      this.port !== undefined &&
+      this.writer !== undefined &&
+      this.reader !== undefined
+    );
   }
 
   public async sendRaw(data: Uint8Array, force?: boolean): Promise<void> {
     const send = async () => {
       const writer = this.writer;
-      if (!this.isConnected() || !writer) throw new Error("Printer is not connected");
+      if (!this.isConnected() || !writer)
+        throw new Error("Printer is not connected");
       await new Promise((r) => setTimeout(r, this.packetIntervalMs));
       await writer.write(data);
     };
@@ -199,12 +211,18 @@ export class B21SerialClient extends NiimbotAbstractClient {
 export function browserPortSource(): PortSource {
   return async () => {
     if (!("serial" in navigator)) {
-      throw new Error("This browser has no Web Serial support. Use Microsoft Edge or Google Chrome.");
+      throw new Error(
+        "This browser has no Web Serial support. Use Microsoft Edge or Google Chrome.",
+      );
     }
     const serial = navigator.serial;
-    const granted = (await serial.getPorts()).filter((p) => p.getInfo().usbVendorId === NIIMBOT_USB_VENDOR_ID);
+    const granted = (await serial.getPorts()).filter(
+      (p) => p.getInfo().usbVendorId === NIIMBOT_USB_VENDOR_ID,
+    );
     if (granted.length === 1) return granted[0] as unknown as SerialPortLike;
-    const port = await serial.requestPort({ filters: [{ usbVendorId: NIIMBOT_USB_VENDOR_ID }] });
+    const port = await serial.requestPort({
+      filters: [{ usbVendorId: NIIMBOT_USB_VENDOR_ID }],
+    });
     return port;
   };
 }

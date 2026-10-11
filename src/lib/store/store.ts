@@ -15,7 +15,10 @@ export const templateSchema = z.object({
 });
 export type Template = z.infer<typeof templateSchema>;
 
-const bandSchema = z.object({ y: z.number().min(0), height: z.number().positive() });
+const bandSchema = z.object({
+  y: z.number().min(0),
+  height: z.number().positive(),
+});
 export const overrideSchema = z
   .object({
     widthMm: z.number().positive().max(50),
@@ -54,7 +57,10 @@ interface LabelDb extends DBSchema {
   templates: { key: string; value: Template; indexes: { updatedAt: number } };
   /** RFID barcode → catalogue label id (V1). */
   labelMap: { key: string; value: { barcode: string; labelId: string } };
-  overrides: { key: string; value: { labelId: string; override: z.infer<typeof overrideSchema> } };
+  overrides: {
+    key: string;
+    value: { labelId: string; override: z.infer<typeof overrideSchema> };
+  };
   settings: { key: string; value: { key: string; value: Settings } };
 }
 
@@ -107,13 +113,21 @@ export class Store {
     await this.db.put("labelMap", { barcode, labelId });
   }
 
-  async getOverrides(): Promise<Record<string, z.infer<typeof overrideSchema>>> {
+  async getOverrides(): Promise<
+    Record<string, z.infer<typeof overrideSchema>>
+  > {
     const rows = await this.db.getAll("overrides");
     return Object.fromEntries(rows.map((r) => [r.labelId, r.override]));
   }
 
-  async saveOverride(labelId: string, override: z.infer<typeof overrideSchema>): Promise<void> {
-    await this.db.put("overrides", { labelId, override: overrideSchema.parse(override) });
+  async saveOverride(
+    labelId: string,
+    override: z.infer<typeof overrideSchema>,
+  ): Promise<void> {
+    await this.db.put("overrides", {
+      labelId,
+      override: overrideSchema.parse(override),
+    });
   }
 
   async clearOverride(labelId: string): Promise<void> {
@@ -127,7 +141,10 @@ export class Store {
   }
 
   async saveSettings(value: Settings): Promise<void> {
-    await this.db.put("settings", { key: "app", value: settingsSchema.parse(value) });
+    await this.db.put("settings", {
+      key: "app",
+      value: settingsSchema.parse(value),
+    });
   }
 
   async exportBackup(now = new Date()): Promise<Backup> {
@@ -137,7 +154,9 @@ export class Store {
       schema: EXPORT_SCHEMA,
       exportedAt: now.toISOString(),
       templates: await this.listTemplates(),
-      labelMap: Object.fromEntries(labelRows.map((r) => [r.barcode, r.labelId])),
+      labelMap: Object.fromEntries(
+        labelRows.map((r) => [r.barcode, r.labelId]),
+      ),
       overrides: await this.getOverrides(),
       settings: await this.getSettings(),
     };
@@ -149,7 +168,10 @@ export class Store {
    */
   async importBackup(raw: unknown): Promise<{ templates: number }> {
     const backup = backupSchema.parse(raw);
-    const tx = this.db.transaction(["templates", "labelMap", "overrides", "settings"], "readwrite");
+    const tx = this.db.transaction(
+      ["templates", "labelMap", "overrides", "settings"],
+      "readwrite",
+    );
     await Promise.all([
       ...backup.templates.map((t) => tx.objectStore("templates").put(t)),
       ...Object.entries(backup.labelMap).map(([barcode, labelId]) =>
@@ -165,7 +187,13 @@ export class Store {
   }
 }
 
-export function newTemplate(name: string, design: Design, batch: BatchSpec, density: number, copies: number): Template {
+export function newTemplate(
+  name: string,
+  design: Design,
+  batch: BatchSpec,
+  density: number,
+  copies: number,
+): Template {
   return {
     id: crypto.randomUUID(),
     name,

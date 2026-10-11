@@ -37,16 +37,21 @@ export function batchValues(spec: BatchSpec): (string | null)[] {
     case "none":
       return [null];
     case "sequence": {
-      if (spec.count > MAX_BATCH) throw new BatchError(`A batch is limited to ${MAX_BATCH} labels`);
+      if (spec.count > MAX_BATCH)
+        throw new BatchError(`A batch is limited to ${MAX_BATCH} labels`);
       return Array.from(
         { length: spec.count },
-        (_, i) => spec.prefix + formatNumber(spec.start + i * spec.step, spec.pad) + spec.suffix,
+        (_, i) =>
+          spec.prefix +
+          formatNumber(spec.start + i * spec.step, spec.pad) +
+          spec.suffix,
       );
     }
     case "list": {
       const items = spec.items.map((s) => s.trim()).filter((s) => s.length > 0);
       if (items.length === 0) throw new BatchError("The list is empty");
-      if (items.length > MAX_BATCH) throw new BatchError(`A batch is limited to ${MAX_BATCH} labels`);
+      if (items.length > MAX_BATCH)
+        throw new BatchError(`A batch is limited to ${MAX_BATCH} labels`);
       return items;
     }
   }

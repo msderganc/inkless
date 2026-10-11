@@ -19,23 +19,48 @@ const files = walk(OUT)
   .sort();
 
 const hashes = Object.fromEntries(
-  files.map((f) => [f, createHash("sha256").update(readFileSync(join(OUT, f))).digest("hex")]),
+  files.map((f) => [
+    f,
+    createHash("sha256")
+      .update(readFileSync(join(OUT, f)))
+      .digest("hex"),
+  ]),
 );
-const buildId = createHash("sha256").update(JSON.stringify(hashes)).digest("hex").slice(0, 16);
+const buildId = createHash("sha256")
+  .update(JSON.stringify(hashes))
+  .digest("hex")
+  .slice(0, 16);
 
 // Precache URLs: "dir/index.html" is served at "/dir/".
-const urls = files.map((f) => (f === "index.html" ? "/" : f.endsWith("/index.html") ? `/${f.slice(0, -10)}` : `/${f}`));
+const urls = files.map((f) =>
+  f === "index.html"
+    ? "/"
+    : f.endsWith("/index.html")
+      ? `/${f.slice(0, -10)}`
+      : `/${f}`,
+);
 
 const swPath = join(OUT, "sw.js");
 const sw = readFileSync(swPath, "utf8")
   .replace(`"__BUILD_ID__"`, JSON.stringify(buildId))
   .replace("= __PRECACHE__;", `= ${JSON.stringify(urls)};`);
-if (sw.includes("__PRECACHE__") || sw.includes("__BUILD_ID__")) throw new Error("sw.js placeholders not replaced");
+if (sw.includes("__PRECACHE__") || sw.includes("__BUILD_ID__"))
+  throw new Error("sw.js placeholders not replaced");
 writeFileSync(swPath, sw);
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 writeFileSync(
   join(OUT, "build-manifest.json"),
-  JSON.stringify({ app: pkg.name, version: pkg.version, buildId, builtAt: new Date().toISOString(), files: hashes }, null, 2),
+  JSON.stringify(
+    {
+      app: pkg.name,
+      version: pkg.version,
+      buildId,
+      builtAt: new Date().toISOString(),
+      files: hashes,
+    },
+    null,
+    2,
+  ),
 );
 console.log(`postbuild: ${urls.length} files precached, build ${buildId}`);

@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BatchError, type BatchSpec, batchValues, MAX_BATCH, parseList } from "~/lib/batch";
+import {
+  BatchError,
+  type BatchSpec,
+  batchValues,
+  MAX_BATCH,
+  parseList,
+} from "~/lib/batch";
 import { MAX_COPIES } from "~/lib/printer/session";
 
 interface Props {
@@ -22,7 +28,9 @@ interface Props {
 const field = "rounded border border-neutral-300 px-2 py-1";
 
 export function PrintPanel(p: Props) {
-  const [listText, setListText] = useState(p.batch.kind === "list" ? p.batch.items.join("\n") : "");
+  const [listText, setListText] = useState(
+    p.batch.kind === "list" ? p.batch.items.join("\n") : "",
+  );
   const summary = useMemo(() => {
     try {
       const v = batchValues(p.batch);
@@ -38,7 +46,9 @@ export function PrintPanel(p: Props) {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">Print</h2>
+      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+        Print
+      </h2>
 
       <div className="flex flex-wrap items-end gap-3 text-sm">
         <label className="flex flex-col text-xs text-neutral-600">
@@ -49,12 +59,25 @@ export function PrintPanel(p: Props) {
             min={1}
             max={MAX_COPIES}
             value={p.copies}
-            onChange={(e) => p.onCopies(Math.min(MAX_COPIES, Math.max(1, Math.round(Number(e.target.value) || 1))))}
+            onChange={(e) =>
+              p.onCopies(
+                Math.min(
+                  MAX_COPIES,
+                  Math.max(1, Math.round(Number(e.target.value) || 1)),
+                ),
+              )
+            }
           />
         </label>
         <label className="flex flex-col text-xs text-neutral-600">
           Darkness {p.density}
-          <input type="range" min={1} max={5} value={p.density} onChange={(e) => p.onDensity(Number(e.target.value))} />
+          <input
+            type="range"
+            min={1}
+            max={5}
+            value={p.density}
+            onChange={(e) => p.onDensity(Number(e.target.value))}
+          />
         </label>
       </div>
 
@@ -72,7 +95,15 @@ export function PrintPanel(p: Props) {
                     k === "none"
                       ? { kind: "none" }
                       : k === "sequence"
-                        ? { kind: "sequence", start: 1, step: 1, count: 10, pad: 0, prefix: "", suffix: "" }
+                        ? {
+                            kind: "sequence",
+                            start: 1,
+                            step: 1,
+                            count: 10,
+                            pad: 0,
+                            prefix: "",
+                            suffix: "",
+                          }
                         : { kind: "list", items: parseList(listText) },
                   )
                 }
@@ -82,7 +113,9 @@ export function PrintPanel(p: Props) {
           ))}
         </div>
 
-        {p.batch.kind === "sequence" && <SequenceFields b={p.batch} onChange={p.onBatch} />}
+        {p.batch.kind === "sequence" && (
+          <SequenceFields b={p.batch} onChange={p.onBatch} />
+        )}
         {p.batch.kind === "list" && (
           <textarea
             className={`${field} min-h-24 w-full font-mono text-xs`}
@@ -96,14 +129,17 @@ export function PrintPanel(p: Props) {
         )}
 
         {p.batch.kind !== "none" && !p.usesPlaceholder && (
-          <p className="text-xs text-amber-700">Add {"{n}"} to a text box to print the batch value on each label.</p>
+          <p className="text-xs text-amber-700">
+            Add {"{n}"} to a text box to print the batch value on each label.
+          </p>
         )}
         {"error" in summary ? (
           <p className="text-xs text-red-700">{summary.error}</p>
         ) : (
           summary.first !== undefined && (
             <p className="text-xs text-neutral-500">
-              {summary.count} labels: “{summary.first}” … “{summary.last}” (max {MAX_BATCH})
+              {summary.count} labels: “{summary.first}” … “{summary.last}” (max{" "}
+              {MAX_BATCH})
             </p>
           )
         )}
@@ -125,22 +161,43 @@ export function PrintPanel(p: Props) {
             className="rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
             onClick={p.onPrint}
             disabled={p.state !== "ready" || "error" in summary}
-            title={p.state !== "ready" ? "Connect the printer first" : undefined}
+            title={
+              p.state !== "ready" ? "Connect the printer first" : undefined
+            }
           >
             Print {labels > 1 ? `${labels} labels` : ""}
           </button>
         )}
         {p.progress && printing && (
-          <progress className="h-2 flex-1" max={p.progress.total} value={p.progress.done} aria-label="Print progress" />
+          <progress
+            className="h-2 flex-1"
+            max={p.progress.total}
+            value={p.progress.done}
+            aria-label="Print progress"
+          />
         )}
       </div>
-      {p.lastResult && <p className="text-sm text-neutral-700" role="status">{p.lastResult}</p>}
+      {p.lastResult && (
+        <p className="text-sm text-neutral-700" role="status">
+          {p.lastResult}
+        </p>
+      )}
     </section>
   );
 }
 
-function SequenceFields({ b, onChange }: { b: Extract<BatchSpec, { kind: "sequence" }>; onChange: (b: BatchSpec) => void }) {
-  const num = (label: string, key: "start" | "step" | "count" | "pad", min: number) => (
+function SequenceFields({
+  b,
+  onChange,
+}: {
+  b: Extract<BatchSpec, { kind: "sequence" }>;
+  onChange: (b: BatchSpec) => void;
+}) {
+  const num = (
+    label: string,
+    key: "start" | "step" | "count" | "pad",
+    min: number,
+  ) => (
     <label className="flex flex-col text-xs text-neutral-600">
       {label}
       <input
@@ -158,7 +215,12 @@ function SequenceFields({ b, onChange }: { b: Extract<BatchSpec, { kind: "sequen
   const text = (label: string, key: "prefix" | "suffix") => (
     <label className="flex flex-col text-xs text-neutral-600">
       {label}
-      <input className={`${field} w-20 text-sm text-neutral-900`} maxLength={50} value={b[key]} onChange={(e) => onChange({ ...b, [key]: e.target.value })} />
+      <input
+        className={`${field} w-20 text-sm text-neutral-900`}
+        maxLength={50}
+        value={b[key]}
+        onChange={(e) => onChange({ ...b, [key]: e.target.value })}
+      />
     </label>
   );
   return (

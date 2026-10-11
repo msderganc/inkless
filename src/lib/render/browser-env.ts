@@ -14,7 +14,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     });
     imageCache.set(src, p);
     // Bounded cache: evict the oldest entry.
-    if (imageCache.size > MAX_CACHED_IMAGES) imageCache.delete(imageCache.keys().next().value!);
+    if (imageCache.size > MAX_CACHED_IMAGES)
+      imageCache.delete(imageCache.keys().next().value!);
     p.catch(() => imageCache.delete(src));
   }
   return p;

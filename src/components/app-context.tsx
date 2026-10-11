@@ -1,9 +1,24 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { type LabelOverride } from "~/lib/catalogue";
-import { B21SerialClient, browserPortSource } from "~/lib/printer/serial-client";
-import { PrinterSession, type SessionStatus, webLockProvider } from "~/lib/printer/session";
+import {
+  B21SerialClient,
+  browserPortSource,
+} from "~/lib/printer/serial-client";
+import {
+  PrinterSession,
+  type SessionStatus,
+  webLockProvider,
+} from "~/lib/printer/session";
 import { DEFAULT_SETTINGS, type Settings, Store } from "~/lib/store/store";
 
 interface AppContextValue {
@@ -47,7 +62,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setOverrides(await s.getOverrides());
         setStore(s);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : String(e)),
+      );
     return () => {
       cancelled = true;
       opened?.close();
@@ -56,7 +73,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Lifecycle (spec Phase 5): poll only while visible, and release the printer when the page goes away.
   useEffect(() => {
-    const onVisibility = () => session.setVisible(document.visibilityState === "visible");
+    const onVisibility = () =>
+      session.setVisible(document.visibilityState === "visible");
     const onPageHide = () => void session.disconnect();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
@@ -84,14 +102,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   if (error) {
     return (
       <div className="p-6 text-red-700">
-        Local storage is unavailable ({error}). Templates cannot be saved in this browser profile.
+        Local storage is unavailable ({error}). Templates cannot be saved in
+        this browser profile.
       </div>
     );
   }
   if (!store) return <div className="p-6 text-neutral-500">Loading…</div>;
 
   return (
-    <AppContext.Provider value={{ store, session, settings, updateSettings, overrides, reloadOverrides }}>
+    <AppContext.Provider
+      value={{
+        store,
+        session,
+        settings,
+        updateSettings,
+        overrides,
+        reloadOverrides,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );

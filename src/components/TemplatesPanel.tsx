@@ -12,14 +12,23 @@ interface Props {
   revision: number;
 }
 
-export function TemplatesPanel({ current, onSave, onLoad, onDeleted, revision }: Props) {
+export function TemplatesPanel({
+  current,
+  onSave,
+  onLoad,
+  onDeleted,
+  revision,
+}: Props) {
   const { store, reloadOverrides } = useApp();
   const [items, setItems] = useState<Template[]>([]);
   const [name, setName] = useState(current?.name ?? "");
   const [message, setMessage] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const refresh = useCallback(async () => setItems(await store.listTemplates()), [store]);
+  const refresh = useCallback(
+    async () => setItems(await store.listTemplates()),
+    [store],
+  );
   useEffect(() => void refresh(), [refresh, revision]);
   useEffect(() => setName(current?.name ?? ""), [current]);
 
@@ -36,7 +45,9 @@ export function TemplatesPanel({ current, onSave, onLoad, onDeleted, revision }:
 
   const exportBackup = async () => {
     const backup = await store.exportBackup();
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -58,7 +69,9 @@ export function TemplatesPanel({ current, onSave, onLoad, onDeleted, revision }:
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">Templates</h2>
+      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+        Templates
+      </h2>
       <div className="flex gap-2">
         <input
           className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-sm"
@@ -67,22 +80,43 @@ export function TemplatesPanel({ current, onSave, onLoad, onDeleted, revision }:
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <button type="button" className="rounded border px-2 py-1 text-sm hover:bg-neutral-100" onClick={() => void save(false)}>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-sm hover:bg-neutral-100"
+          onClick={() => void save(false)}
+        >
           Save
         </button>
         {current && (
-          <button type="button" className="rounded border px-2 py-1 text-sm hover:bg-neutral-100" onClick={() => void save(true)}>
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-sm hover:bg-neutral-100"
+            onClick={() => void save(true)}
+          >
             Save as new
           </button>
         )}
       </div>
-      {message && <p className="text-xs text-neutral-600" role="status">{message}</p>}
+      {message && (
+        <p className="text-xs text-neutral-600" role="status">
+          {message}
+        </p>
+      )}
 
       <ul className="max-h-64 divide-y overflow-auto rounded border border-neutral-200 text-sm">
-        {items.length === 0 && <li className="p-2 text-neutral-500">No saved templates yet.</li>}
+        {items.length === 0 && (
+          <li className="p-2 text-neutral-500">No saved templates yet.</li>
+        )}
         {items.map((t) => (
-          <li key={t.id} className={`flex items-center gap-2 p-2 ${t.id === current?.id ? "bg-sky-50" : ""}`}>
-            <button type="button" className="flex-1 truncate text-left hover:underline" onClick={() => onLoad(t)}>
+          <li
+            key={t.id}
+            className={`flex items-center gap-2 p-2 ${t.id === current?.id ? "bg-sky-50" : ""}`}
+          >
+            <button
+              type="button"
+              className="flex-1 truncate text-left hover:underline"
+              onClick={() => onLoad(t)}
+            >
               {t.name}
             </button>
             <button
@@ -102,10 +136,18 @@ export function TemplatesPanel({ current, onSave, onLoad, onDeleted, revision }:
       </ul>
 
       <div className="flex gap-2 text-sm">
-        <button type="button" className="rounded border px-2 py-1 hover:bg-neutral-100" onClick={() => void exportBackup()}>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 hover:bg-neutral-100"
+          onClick={() => void exportBackup()}
+        >
           Export backup
         </button>
-        <button type="button" className="rounded border px-2 py-1 hover:bg-neutral-100" onClick={() => fileInput.current?.click()}>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 hover:bg-neutral-100"
+          onClick={() => fileInput.current?.click()}
+        >
           Import backup
         </button>
         <input

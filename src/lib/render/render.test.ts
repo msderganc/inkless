@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { nodeEnv, halfBlackPng } from "~/test/canvas-env";
 import { CATALOGUE, findLabel, type LabelSpec } from "../catalogue";
-import { type Design, designSchema, emptyDesign, type ImageElement, MAX_IMAGE_SRC_CHARS, newText, type TextElement } from "../design";
+import {
+  type Design,
+  designSchema,
+  emptyDesign,
+  type ImageElement,
+  MAX_IMAGE_SRC_CHARS,
+  newText,
+  type TextElement,
+} from "../design";
 import { DOTS_PER_MM, mmToDots, PRINTHEAD_DOTS } from "../geometry";
 import { regionContains, safeRegion } from "../shapes";
 import { encodeForPrinter } from "./encode";
@@ -23,7 +31,14 @@ function blackOutsideSafe(bmp: MonoBitmap, spec: LabelSpec): number {
   let n = 0;
   for (let y = 0; y < bmp.height; y++) {
     for (let x = 0; x < bmp.width; x++) {
-      if (bmp.data[y * bmp.width + x] && !regionContains(region, (x + 0.5) / DOTS_PER_MM, (y + 0.5) / DOTS_PER_MM)) {
+      if (
+        bmp.data[y * bmp.width + x] &&
+        !regionContains(
+          region,
+          (x + 0.5) / DOTS_PER_MM,
+          (y + 0.5) / DOTS_PER_MM,
+        )
+      ) {
         n++;
       }
     }
@@ -31,22 +46,33 @@ function blackOutsideSafe(bmp: MonoBitmap, spec: LabelSpec): number {
   return n;
 }
 
-function design(spec: LabelSpec, elements: Design["elements"], repeatInWrap = false): Design {
+function design(
+  spec: LabelSpec,
+  elements: Design["elements"],
+  repeatInWrap = false,
+): Design {
   return { ...emptyDesign(spec.id), elements, repeatInWrap };
 }
 
 describe("renderLabel", () => {
-  it.each(CATALOGUE.map((l) => [l.id, l] as const))("%s: output stays in the safe area and printhead", async (_, spec) => {
-    const r = await renderLabel(design(spec, [fullBlock(spec)]), spec, nodeEnv);
-    expect(r.label.width).toBe(mmToDots(spec.widthMm));
-    expect(r.label.height).toBe(mmToDots(spec.heightMm));
-    expect(r.print.width).toBeLessThanOrEqual(PRINTHEAD_DOTS);
-    expect(blackCount(r.label)).toBeGreaterThan(0);
-    expect(blackOutsideSafe(r.label, spec)).toBe(0);
-    const enc = encodeForPrinter(r.print);
-    expect(enc.cols).toBe(Math.ceil(r.print.width / 8) * 8);
-    expect(enc.rows).toBe(r.print.height);
-  });
+  it.each(CATALOGUE.map((l) => [l.id, l] as const))(
+    "%s: output stays in the safe area and printhead",
+    async (_, spec) => {
+      const r = await renderLabel(
+        design(spec, [fullBlock(spec)]),
+        spec,
+        nodeEnv,
+      );
+      expect(r.label.width).toBe(mmToDots(spec.widthMm));
+      expect(r.label.height).toBe(mmToDots(spec.heightMm));
+      expect(r.print.width).toBeLessThanOrEqual(PRINTHEAD_DOTS);
+      expect(blackCount(r.label)).toBeGreaterThan(0);
+      expect(blackOutsideSafe(r.label, spec)).toBe(0);
+      const enc = encodeForPrinter(r.print);
+      expect(enc.cols).toBe(Math.ceil(r.print.width / 8) * 8);
+      expect(enc.rows).toBe(r.print.height);
+    },
+  );
 
   it("an empty design prints nothing", async () => {
     const spec = findLabel("rect-50x30")!;
@@ -56,9 +82,18 @@ describe("renderLabel", () => {
 
   it("substitutes the batch value", async () => {
     const spec = findLabel("rect-50x30")!;
-    const el = { ...newText(2, 2, 46, 26), text: "{n}", autoFit: false, fontSizeMm: 10 };
-    const a = await renderLabel(design(spec, [el]), spec, nodeEnv, { batchValue: "1" });
-    const b = await renderLabel(design(spec, [el]), spec, nodeEnv, { batchValue: "888" });
+    const el = {
+      ...newText(2, 2, 46, 26),
+      text: "{n}",
+      autoFit: false,
+      fontSizeMm: 10,
+    };
+    const a = await renderLabel(design(spec, [el]), spec, nodeEnv, {
+      batchValue: "1",
+    });
+    const b = await renderLabel(design(spec, [el]), spec, nodeEnv, {
+      batchValue: "888",
+    });
     expect(blackCount(b.label)).toBeGreaterThan(blackCount(a.label));
   });
 
@@ -95,7 +130,9 @@ describe("renderLabel", () => {
     expect(cy).toBeLessThan(p1.y + p1.height);
 
     // Design view keeps panel 1 upright, where the user placed it.
-    const d = await renderLabel(design(spec, [el]), spec, nodeEnv, { view: "design" });
+    const d = await renderLabel(design(spec, [el]), spec, nodeEnv, {
+      view: "design",
+    });
     let dy = 0;
     let dn = 0;
     for (let y = 0; y < d.label.height; y++) {
@@ -111,12 +148,27 @@ describe("renderLabel", () => {
 
   it("cable: repeatInWrap tiles the flag into the wrap zone", async () => {
     const spec = findLabel("cable-25x78")!;
-    const el = { ...newText(2, 2, 21, 10), text: "██", autoFit: false, fontSizeMm: 8 };
+    const el = {
+      ...newText(2, 2, 21, 10),
+      text: "██",
+      autoFit: false,
+      fontSizeMm: 8,
+    };
     const plain = await renderLabel(design(spec, [el]), spec, nodeEnv);
     const tiled = await renderLabel(design(spec, [el], true), spec, nodeEnv);
     const wrapStart = mmToDots(spec.wrap!.y) * plain.label.width;
-    expect(blackCount({ ...plain.label, data: plain.label.data.subarray(wrapStart) })).toBe(0);
-    expect(blackCount({ ...tiled.label, data: tiled.label.data.subarray(wrapStart) })).toBeGreaterThan(0);
+    expect(
+      blackCount({
+        ...plain.label,
+        data: plain.label.data.subarray(wrapStart),
+      }),
+    ).toBe(0);
+    expect(
+      blackCount({
+        ...tiled.label,
+        data: tiled.label.data.subarray(wrapStart),
+      }),
+    ).toBeGreaterThan(0);
   });
 
   it("images: threshold, dither and invert", async () => {
@@ -134,9 +186,27 @@ describe("renderLabel", () => {
       threshold: 128,
       invert: false,
     };
-    const normal = blackCount((await renderLabel(design(spec, [img]), spec, nodeEnv)).label);
-    const inverted = blackCount((await renderLabel(design(spec, [{ ...img, invert: true }]), spec, nodeEnv)).label);
-    const dithered = blackCount((await renderLabel(design(spec, [{ ...img, dither: true }]), spec, nodeEnv)).label);
+    const normal = blackCount(
+      (await renderLabel(design(spec, [img]), spec, nodeEnv)).label,
+    );
+    const inverted = blackCount(
+      (
+        await renderLabel(
+          design(spec, [{ ...img, invert: true }]),
+          spec,
+          nodeEnv,
+        )
+      ).label,
+    );
+    const dithered = blackCount(
+      (
+        await renderLabel(
+          design(spec, [{ ...img, dither: true }]),
+          spec,
+          nodeEnv,
+        )
+      ).label,
+    );
     const area = mmToDots(20) * mmToDots(20);
     expect(normal / area).toBeCloseTo(0.5, 1);
     expect(inverted / area).toBeCloseTo(0.5, 1);
@@ -145,7 +215,11 @@ describe("renderLabel", () => {
 
   it("rotated text runs vertically inside its box", async () => {
     const spec = findLabel("rect-50x30")!;
-    const el = { ...newText(20, 2, 10, 26), text: "ROTATED TEXT", rotation: 90 as const };
+    const el = {
+      ...newText(20, 2, 10, 26),
+      text: "ROTATED TEXT",
+      rotation: 90 as const,
+    };
     const r = await renderLabel(design(spec, [el]), spec, nodeEnv);
     const b = inkBounds(r.label);
     expect(b).toBeDefined();
@@ -154,7 +228,11 @@ describe("renderLabel", () => {
     // A rotated line of text is much taller than it is wide; an unrotated one would be the reverse.
     expect(b!.y1 - b!.y0).toBeGreaterThan(2 * (b!.x1 - b!.x0));
 
-    const flat = await renderLabel(design(spec, [{ ...el, w: 26, h: 10, x: 2, y: 2, rotation: 0 }]), spec, nodeEnv);
+    const flat = await renderLabel(
+      design(spec, [{ ...el, w: 26, h: 10, x: 2, y: 2, rotation: 0 }]),
+      spec,
+      nodeEnv,
+    );
     const f = inkBounds(flat.label)!;
     expect(f.x1 - f.x0).toBeGreaterThan(2 * (f.y1 - f.y0));
   });
@@ -162,9 +240,16 @@ describe("renderLabel", () => {
   it("calibration offset shifts the printed content, for narrow labels too", async () => {
     for (const id of ["rect-40x30", "rect-50x30"]) {
       const spec = findLabel(id)!;
-      const el = { ...newText(10, 5, 10, 10), text: "█", autoFit: false, fontSizeMm: 8 };
+      const el = {
+        ...newText(10, 5, 10, 10),
+        text: "█",
+        autoFit: false,
+        fontSizeMm: 8,
+      };
       const base = await renderLabel(design(spec, [el]), spec, nodeEnv);
-      const shifted = await renderLabel(design(spec, [el]), spec, nodeEnv, { offsetDots: 5 });
+      const shifted = await renderLabel(design(spec, [el]), spec, nodeEnv, {
+        offsetDots: 5,
+      });
       expect(shifted.print.width).toBe(base.print.width);
       const bx = inkBounds(base.print, 1)!;
       const sx = inkBounds(shifted.print, 1)!;
@@ -176,7 +261,11 @@ describe("renderLabel", () => {
   it("independent check: no ink within 1 mm of any die-cut edge or outside round labels", async () => {
     for (const id of ["rect-40x30", "rect-50x80", "round-31", "round-50"]) {
       const spec = findLabel(id)!;
-      const r = await renderLabel(design(spec, [fullBlock(spec)]), spec, nodeEnv);
+      const r = await renderLabel(
+        design(spec, [fullBlock(spec)]),
+        spec,
+        nodeEnv,
+      );
       const b = inkBounds(r.label)!;
       expect(b.x0).toBeGreaterThanOrEqual(1 - 0.15);
       expect(b.y0).toBeGreaterThanOrEqual(1 - 0.15);
@@ -218,8 +307,14 @@ describe("renderLabel", () => {
       threshold: 128,
       invert: false,
     };
-    await expect(renderLabel(design(spec, [img]), spec, nodeEnv)).resolves.toBeDefined();
-    const noSize = await renderLabel(design(spec, [{ ...img, w: 10, h: 10, src: svg }]), spec, nodeEnv).catch(() => null);
+    await expect(
+      renderLabel(design(spec, [img]), spec, nodeEnv),
+    ).resolves.toBeDefined();
+    const noSize = await renderLabel(
+      design(spec, [{ ...img, w: 10, h: 10, src: svg }]),
+      spec,
+      nodeEnv,
+    ).catch(() => null);
     if (noSize) expect(blackCount(noSize.label)).toBe(0);
   });
 });
@@ -227,9 +322,21 @@ describe("renderLabel", () => {
 describe("design schema bounds (untrusted imports)", () => {
   it("rejects absurd element geometry and oversized images", () => {
     const base = newText(0, 0, 10, 10);
-    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [base] }).success).toBe(true);
-    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [{ ...base, w: 1e6 }] }).success).toBe(false);
-    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [{ ...base, x: -1e6 }] }).success).toBe(false);
+    expect(
+      designSchema.safeParse({ ...emptyDesign("x"), elements: [base] }).success,
+    ).toBe(true);
+    expect(
+      designSchema.safeParse({
+        ...emptyDesign("x"),
+        elements: [{ ...base, w: 1e6 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      designSchema.safeParse({
+        ...emptyDesign("x"),
+        elements: [{ ...base, x: -1e6 }],
+      }).success,
+    ).toBe(false);
     const huge: ImageElement = {
       id: "i",
       kind: "image",
@@ -243,7 +350,9 @@ describe("design schema bounds (untrusted imports)", () => {
       threshold: 128,
       invert: false,
     };
-    expect(designSchema.safeParse({ ...emptyDesign("x"), elements: [huge] }).success).toBe(false);
+    expect(
+      designSchema.safeParse({ ...emptyDesign("x"), elements: [huge] }).success,
+    ).toBe(false);
   });
 });
 
@@ -268,6 +377,8 @@ function inkBounds(bmp: MonoBitmap, scale = DOTS_PER_MM) {
 
 describe("encodeForPrinter", () => {
   it("rejects rasters wider than the printhead", () => {
-    expect(() => encodeForPrinter({ width: 400, height: 1, data: new Uint8Array(400) })).toThrow(RangeError);
+    expect(() =>
+      encodeForPrinter({ width: 400, height: 1, data: new Uint8Array(400) }),
+    ).toThrow(RangeError);
   });
 });

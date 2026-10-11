@@ -29,7 +29,12 @@ export type Region =
 const WAVE_DEPTH_MM = 1.5;
 const WAVE_LOBES = 16;
 
-function bandRect(spec: LabelSpec, band: Band, xInset: number, yInset: number): RectMm {
+function bandRect(
+  spec: LabelSpec,
+  band: Band,
+  xInset: number,
+  yInset: number,
+): RectMm {
   return {
     x: xInset,
     y: band.y + yInset,
@@ -65,13 +70,19 @@ export function safeRegion(spec: LabelSpec, margin = SAFE_MARGIN_MM): Region {
       return circle(d / 2 - WAVE_DEPTH_MM - margin);
     case "jewelry":
       if (spec.panels) {
-        return { kind: "rects", rects: spec.panels.map((p) => bandRect(spec, p, xInset, margin)) };
+        return {
+          kind: "rects",
+          rects: spec.panels.map((p) => bandRect(spec, p, xInset, margin)),
+        };
       }
       break;
     case "cable":
       if (spec.flag) {
         const bands = spec.wrap ? [spec.flag, spec.wrap] : [spec.flag];
-        return { kind: "rects", rects: bands.map((b) => bandRect(spec, b, xInset, margin)) };
+        return {
+          kind: "rects",
+          rects: bands.map((b) => bandRect(spec, b, xInset, margin)),
+        };
       }
       break;
     case "rect":
@@ -118,7 +129,13 @@ function traceRect(ctx: PathSink, r: RectMm, s: number) {
 export function traceRegion(ctx: PathSink, region: Region, scale: number) {
   ctx.beginPath();
   if (region.kind === "circle") {
-    ctx.arc(region.cx * scale, region.cy * scale, region.r * scale, 0, Math.PI * 2);
+    ctx.arc(
+      region.cx * scale,
+      region.cy * scale,
+      region.r * scale,
+      0,
+      Math.PI * 2,
+    );
     ctx.closePath();
     return;
   }
@@ -130,7 +147,11 @@ export function traceOutline(ctx: PathSink, spec: LabelSpec, scale: number) {
   const w = spec.widthMm;
   const h = spec.heightMm;
   if (spec.family === "round") {
-    traceRegion(ctx, { kind: "circle", cx: w / 2, cy: h / 2, r: Math.min(w, h) / 2 }, scale);
+    traceRegion(
+      ctx,
+      { kind: "circle", cx: w / 2, cy: h / 2, r: Math.min(w, h) / 2 },
+      scale,
+    );
     return;
   }
   if (spec.family === "wave") {

@@ -4,7 +4,12 @@ import { z } from "zod";
  * A label design. Coordinates are mm from the label's top-left corner, with x across the
  * printhead and y along the feed. Jewelry panel 1 is designed upright; the renderer rotates it.
  */
-export const rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
+export const rotationSchema = z.union([
+  z.literal(0),
+  z.literal(90),
+  z.literal(180),
+  z.literal(270),
+]);
 export type Rotation = z.infer<typeof rotationSchema>;
 
 /** Elements beyond these bounds cannot be on any label; bounding them keeps rendering cheap. */
@@ -43,7 +48,10 @@ export const imageElementSchema = z.object({
   invert: z.boolean(),
 });
 
-export const elementSchema = z.discriminatedUnion("kind", [textElementSchema, imageElementSchema]);
+export const elementSchema = z.discriminatedUnion("kind", [
+  textElementSchema,
+  imageElementSchema,
+]);
 
 export const designSchema = z.object({
   version: z.literal(1),
@@ -66,7 +74,12 @@ export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-export function newText(x: number, y: number, w: number, h: number): TextElement {
+export function newText(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): TextElement {
   return {
     id: newId(),
     kind: "text",
@@ -87,5 +100,7 @@ export function newText(x: number, y: number, w: number, h: number): TextElement
 export const BATCH_PLACEHOLDER = "{n}";
 
 export function designUsesBatch(design: Design): boolean {
-  return design.elements.some((e) => e.kind === "text" && e.text.includes(BATCH_PLACEHOLDER));
+  return design.elements.some(
+    (e) => e.kind === "text" && e.text.includes(BATCH_PLACEHOLDER),
+  );
 }

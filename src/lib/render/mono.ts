@@ -10,7 +10,11 @@ export function createMono(width: number, height: number): MonoBitmap {
 }
 
 /** RGBA → luminance (0 = black, 255 = white). Transparent pixels count as white paper. */
-export function luminance(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number): Uint8Array {
+export function luminance(
+  rgba: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
   const out = new Uint8Array(width * height);
   for (let i = 0, p = 0; i < out.length; i++, p += 4) {
     const a = rgba[p + 3]! / 255;
@@ -20,14 +24,23 @@ export function luminance(rgba: Uint8ClampedArray | Uint8Array, width: number, h
   return out;
 }
 
-export function threshold(gray: Uint8Array, width: number, height: number, level = 128): MonoBitmap {
+export function threshold(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  level = 128,
+): MonoBitmap {
   const bmp = createMono(width, height);
   for (let i = 0; i < gray.length; i++) bmp.data[i] = gray[i]! < level ? 1 : 0;
   return bmp;
 }
 
 /** Floyd–Steinberg error diffusion to 1 bit. */
-export function dither(gray: Uint8Array, width: number, height: number): MonoBitmap {
+export function dither(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+): MonoBitmap {
   const buf = Float32Array.from(gray);
   const bmp = createMono(width, height);
   for (let y = 0; y < height; y++) {
@@ -62,7 +75,13 @@ export function rotateBand180(bmp: MonoBitmap, y0: number, h: number): void {
 }
 
 /** Fill rows [y0, y0+h) by tiling rows [src0, src0+srcH) (cable wrap repeat). */
-export function tileBand(bmp: MonoBitmap, src0: number, srcH: number, y0: number, h: number): void {
+export function tileBand(
+  bmp: MonoBitmap,
+  src0: number,
+  srcH: number,
+  y0: number,
+  h: number,
+): void {
   if (srcH <= 0) return;
   const w = bmp.width;
   const src = bmp.data.slice(src0 * w, (src0 + srcH) * w);
@@ -72,10 +91,17 @@ export function tileBand(bmp: MonoBitmap, src0: number, srcH: number, y0: number
   }
 }
 
-export function cropColumns(bmp: MonoBitmap, start: number, width: number): MonoBitmap {
+export function cropColumns(
+  bmp: MonoBitmap,
+  start: number,
+  width: number,
+): MonoBitmap {
   const out = createMono(width, bmp.height);
   for (let y = 0; y < bmp.height; y++) {
-    out.data.set(bmp.data.subarray(y * bmp.width + start, y * bmp.width + start + width), y * width);
+    out.data.set(
+      bmp.data.subarray(y * bmp.width + start, y * bmp.width + start + width),
+      y * width,
+    );
   }
   return out;
 }

@@ -25,7 +25,8 @@ export interface PacketLogEntry {
 export const SUPPORTED_MODEL_IDS = [777, 776] as const;
 export const DEFAULT_DENSITY = 3; // B21S model default (V4), not the library's print default of 2.
 
-export type SessionState = "disconnected" | "connecting" | "ready" | "printing" | "cancelling" | "error";
+export type SessionState =
+  "disconnected" | "connecting" | "ready" | "printing" | "cancelling" | "error";
 
 export interface PrinterIdentity {
   modelId?: number;
@@ -71,7 +72,10 @@ export type LockProvider = () => Promise<(() => void) | null>;
 export interface SessionDeps {
   createClient(): NiimbotAbstractClient;
   lock?: LockProvider;
-  newPrintTask?(client: NiimbotAbstractClient, options: Partial<PrintOptions>): AbstractPrintTask;
+  newPrintTask?(
+    client: NiimbotAbstractClient,
+    options: Partial<PrintOptions>,
+  ): AbstractPrintTask;
   now?(): number;
   /** Per-label completion deadline (default PAGE_DEADLINE_BASE_MS + PAGE_DEADLINE_PER_COPY_MS × copies). */
   pageDeadlineMs?(copies: number): number;
@@ -93,7 +97,8 @@ const ERROR_TEXT: Partial<Record<number, string>> = {
   [PrinterErrorCode.LackPaper]: "The printer is out of labels.",
   [PrinterErrorCode.PaperOutException]: "Label feed problem. Check the roll.",
   [PrinterErrorCode.LowBattery]: "The printer battery is low.",
-  [PrinterErrorCode.Overheat]: "The printhead is too hot. Wait a minute and try again.",
+  [PrinterErrorCode.Overheat]:
+    "The printhead is too hot. Wait a minute and try again.",
   [PrinterErrorCode.PrinterBusy]: "The printer is busy.",
   [PrinterErrorCode.WrongPaper]: "The label roll does not match.",
   [PrinterErrorCode.ECheckPaper]: "Check the label roll.",
@@ -102,17 +107,22 @@ const ERROR_TEXT: Partial<Record<number, string>> = {
 
 export function describeError(e: unknown): string {
   if (e instanceof PrintError) {
-    return ERROR_TEXT[e.reasonId] ?? `Printer error ${e.reasonId} (${PrinterErrorCode[e.reasonId] ?? "unknown"}).`;
+    return (
+      ERROR_TEXT[e.reasonId] ??
+      `Printer error ${e.reasonId} (${PrinterErrorCode[e.reasonId] ?? "unknown"}).`
+    );
   }
   if (e instanceof DOMException) {
     if (e.name === "NotFoundError") return "No printer was selected.";
     if (e.name === "InvalidStateError" || e.name === "NetworkError") {
       return "The printer port is in use or unavailable. Close the NIIMBOT app and other tabs, then try again.";
     }
-    if (e.name === "SecurityError") return "The browser blocked access to the printer.";
+    if (e.name === "SecurityError")
+      return "The browser blocked access to the printer.";
   }
   if (e instanceof Error) {
-    if (/timeout/i.test(e.message)) return "The printer did not respond in time.";
+    if (/timeout/i.test(e.message))
+      return "The printer did not respond in time.";
     return e.message;
   }
   return String(e);
@@ -121,7 +131,8 @@ export function describeError(e: unknown): string {
 /** Browser Web Locks provider; falls back to no locking where unsupported. */
 export function webLockProvider(name = "b21s-printer"): LockProvider {
   return async () => {
-    if (typeof navigator === "undefined" || !("locks" in navigator)) return () => undefined;
+    if (typeof navigator === "undefined" || !("locks" in navigator))
+      return () => undefined;
     return new Promise<(() => void) | null>((resolveAcquire) => {
       void navigator.locks.request(name, { ifAvailable: true }, (lock) => {
         if (!lock) {
@@ -138,7 +149,9 @@ export function webLockProvider(name = "b21s-printer"): LockProvider {
 class JobControl {
   cancelled = false;
   private rejectAbort!: (e: Error) => void;
-  private readonly aborted = new Promise<never>((_, reject) => (this.rejectAbort = reject));
+  private readonly aborted = new Promise<never>(
+    (_, reject) => (this.rejectAbort = reject),
+  );
 
   constructor() {
     this.aborted.catch(() => undefined);
@@ -155,12 +168,20 @@ class JobControl {
   }
 }
 
-function withDeadline<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
+function withDeadline<T>(
+  p: Promise<T>,
+  ms: number,
+  onTimeout: () => void,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       onTimeout();
-      reject(new Error("The printer did not finish the label in time. Check the roll and the lid."));
+      reject(
+        new Error(
+          "The printer did not finish the label in time. Check the roll and the lid.",
+        ),
+      );
     }, ms);
   });
   return Promise.race([p, expired]).finally(() => clearTimeout(timer));
@@ -211,7 +232,8 @@ export class PrinterSession {
   /** Connect to the printer. Concurrent calls share one attempt; disconnect() cancels it. */
   connect(): Promise<void> {
     if (this.connecting) return this.connecting;
-    if (this.status.state !== "disconnected" && this.status.state !== "error") return Promise.resolve();
+    if (this.status.state !== "disconnected" && this.status.state !== "error")
+      return Promise.resolve();
     const gen = ++this.attempt;
     this.connecting = this.doConnect(gen).finally(() => {
       this.connecting = undefined;
@@ -235,7 +257,10 @@ export class PrinterSession {
       return;
     }
     if (!release) {
-      this.set({ state: "error", error: "The printer is already in use in another tab or window." });
+      this.set({
+        state: "error",
+        error: "The printer is already in use in another tab or window.",
+      });
       return;
     }
     this.releaseLock = release;
@@ -252,8 +277,13 @@ export class PrinterSession {
       }
       const info = client.getPrinterInfo();
       const modelId = info.modelId;
-      if (modelId === undefined || !(SUPPORTED_MODEL_IDS as readonly number[]).includes(modelId)) {
-        throw new Error(`Unsupported printer (model id ${modelId ?? "unknown"}). This app supports the NIIMBOT B21S.`);
+      if (
+        modelId === undefined ||
+        !(SUPPORTED_MODEL_IDS as readonly number[]).includes(modelId)
+      ) {
+        throw new Error(
+          `Unsupported printer (model id ${modelId ?? "unknown"}). This app supports the NIIMBOT B21S.`,
+        );
       }
       if (client.getPrintTaskType() !== "D110") {
         throw new Error("Unexpected print protocol for this printer model.");
@@ -284,20 +314,29 @@ export class PrinterSession {
   private wire(client: NiimbotAbstractClient) {
     const onDisconnect = () => {
       if (this.client !== client) return;
-      const midJob = this.status.state === "printing" || this.status.state === "cancelling";
+      const midJob =
+        this.status.state === "printing" || this.status.state === "cancelling";
       this.job?.abort(new Error("The printer disconnected while printing."));
       void this.teardown().then(() =>
         this.set(
           midJob
-            ? { state: "error", error: "The printer disconnected while printing.", heartbeat: undefined }
+            ? {
+                state: "error",
+                error: "The printer disconnected while printing.",
+                heartbeat: undefined,
+              }
             : { state: "disconnected", heartbeat: undefined },
         ),
       );
     };
-    const onHeartbeat = (e: { data: HeartbeatData }) => this.set({ heartbeat: e.data });
-    const onRfid = (e: { info: { labelRfidInfo?: RfidInfo } }) => this.set({ rfid: e.info.labelRfidInfo });
-    const onSent = (e: { packet: NiimbotPacket }) => this.logPacket(">>", e.packet);
-    const onReceived = (e: { packet: NiimbotPacket }) => this.logPacket("<<", e.packet);
+    const onHeartbeat = (e: { data: HeartbeatData }) =>
+      this.set({ heartbeat: e.data });
+    const onRfid = (e: { info: { labelRfidInfo?: RfidInfo } }) =>
+      this.set({ rfid: e.info.labelRfidInfo });
+    const onSent = (e: { packet: NiimbotPacket }) =>
+      this.logPacket(">>", e.packet);
+    const onReceived = (e: { packet: NiimbotPacket }) =>
+      this.logPacket("<<", e.packet);
     client.on("disconnect", onDisconnect);
     client.on("heartbeat", onHeartbeat);
     client.on("rfidinfofetched", onRfid);
@@ -314,7 +353,9 @@ export class PrinterSession {
 
   /** Opt-in troubleshooting log of the last PACKET_LOG_SIZE packets (off by default). */
   setPacketLogging(enabled: boolean) {
-    this.packetLog = enabled ? (this.packetLog ?? new RingLog(PACKET_LOG_SIZE)) : undefined;
+    this.packetLog = enabled
+      ? (this.packetLog ?? new RingLog(PACKET_LOG_SIZE))
+      : undefined;
   }
 
   getPacketLog(): PacketLogEntry[] {
@@ -323,12 +364,16 @@ export class PrinterSession {
 
   private logPacket(dir: ">>" | "<<", packet: NiimbotPacket) {
     if (!this.packetLog) return;
-    const hex = [...packet.toBytes()].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    const hex = [...packet.toBytes()]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
     this.packetLog.push({ time: this.now(), dir, hex });
   }
 
   private readyClient(): NiimbotAbstractClient | undefined {
-    return this.status.state === "ready" && this.client?.isConnected() ? this.client : undefined;
+    return this.status.state === "ready" && this.client?.isConnected()
+      ? this.client
+      : undefined;
   }
 
   /** Media info reported by the printer, if this model answers (V1: unverified on B21S). */
@@ -363,11 +408,15 @@ export class PrinterSession {
   private applyCadence() {
     const client = this.client;
     if (!client?.isConnected() || this.status.state === "connecting") return;
-    const busy = this.status.state === "printing" || this.status.state === "cancelling";
+    const busy =
+      this.status.state === "printing" || this.status.state === "cancelling";
     // During a job the print task polls status itself; a heartbeat would only compete for the line.
     let want: number | null = null;
     if (!busy && this.visible) {
-      want = this.now() - this.lastActivity < ACTIVE_WINDOW_MS ? HEARTBEAT_ACTIVE_MS : HEARTBEAT_IDLE_MS;
+      want =
+        this.now() - this.lastActivity < ACTIVE_WINDOW_MS
+          ? HEARTBEAT_ACTIVE_MS
+          : HEARTBEAT_IDLE_MS;
     }
     if (want === this.appliedInterval) return;
     this.appliedInterval = want;
@@ -387,7 +436,12 @@ export class PrinterSession {
     this.job?.abort(new Error("Disconnected."));
     await this.teardown();
     await this.running?.catch(() => undefined);
-    this.set({ state: "disconnected", error: undefined, heartbeat: undefined, progress: undefined });
+    this.set({
+      state: "disconnected",
+      error: undefined,
+      heartbeat: undefined,
+      progress: undefined,
+    });
   }
 
   private async teardown() {
@@ -419,19 +473,28 @@ export class PrinterSession {
   /** Print a job. Rejects immediately if the printer is not ready (queue length 1). */
   print(job: PrintJob): Promise<JobOutcome> {
     const client = this.client;
-    if (this.running) return Promise.reject(new Error("A job is already printing."));
+    if (this.running)
+      return Promise.reject(new Error("A job is already printing."));
     if (this.status.state !== "ready" || !client?.isConnected()) {
       return Promise.reject(new Error("The printer is not ready."));
     }
-    if (!(job.pageCount >= 1)) return Promise.reject(new Error("Nothing to print."));
+    if (!(job.pageCount >= 1))
+      return Promise.reject(new Error("Nothing to print."));
     if (!(job.copies >= 1 && job.copies <= MAX_COPIES)) {
-      return Promise.reject(new Error(`Copies must be between 1 and ${MAX_COPIES}.`));
+      return Promise.reject(
+        new Error(`Copies must be between 1 and ${MAX_COPIES}.`),
+      );
     }
-    if (!(job.density >= 1 && job.density <= 5)) return Promise.reject(new Error("Density must be between 1 and 5."));
+    if (!(job.density >= 1 && job.density <= 5))
+      return Promise.reject(new Error("Density must be between 1 and 5."));
 
     const control = new JobControl();
     this.job = control;
-    this.set({ state: "printing", error: undefined, progress: { done: 0, total: job.pageCount } });
+    this.set({
+      state: "printing",
+      error: undefined,
+      progress: { done: 0, total: job.pageCount },
+    });
     this.applyCadence();
     this.running = this.run(client, job, control).finally(() => {
       this.running = undefined;
@@ -440,7 +503,11 @@ export class PrinterSession {
     return this.running;
   }
 
-  private async run(client: NiimbotAbstractClient, job: PrintJob, control: JobControl): Promise<JobOutcome> {
+  private async run(
+    client: NiimbotAbstractClient,
+    job: PrintJob,
+    control: JobControl,
+  ): Promise<JobOutcome> {
     const options: Partial<PrintOptions> = {
       density: job.density,
       labelType: job.labelType,
@@ -452,7 +519,8 @@ export class PrinterSession {
       ? this.deps.newPrintTask(client, options)
       : client.protocol.newPrintTask("D110", options);
     const deadline =
-      this.deps.pageDeadlineMs?.(job.copies) ?? PAGE_DEADLINE_BASE_MS + PAGE_DEADLINE_PER_COPY_MS * job.copies;
+      this.deps.pageDeadlineMs?.(job.copies) ??
+      PAGE_DEADLINE_BASE_MS + PAGE_DEADLINE_PER_COPY_MS * job.copies;
     let printed = 0;
     let outcome: JobOutcome;
     try {
@@ -463,11 +531,19 @@ export class PrinterSession {
         const image = await control.guard(job.renderPage(i));
         await control.guard(task.printPage(image, job.copies));
         // A stalled feed keeps answering status polls without finishing, so bound every label.
-        await control.guard(withDeadline(task.waitForPageFinished(), deadline, () => client.protocol.cancelStatusPoll()));
+        await control.guard(
+          withDeadline(task.waitForPageFinished(), deadline, () =>
+            client.protocol.cancelStatusPoll(),
+          ),
+        );
         printed++;
-        if (this.client === client) this.set({ progress: { done: printed, total: job.pageCount } });
+        if (this.client === client)
+          this.set({ progress: { done: printed, total: job.pageCount } });
       }
-      outcome = { status: control.cancelled ? "cancelled" : "completed", printed };
+      outcome = {
+        status: control.cancelled ? "cancelled" : "completed",
+        printed,
+      };
     } catch (e) {
       outcome = { status: "failed", printed, error: describeError(e) };
     }
@@ -482,7 +558,10 @@ export class PrinterSession {
     // Touch session state only while this job's connection is still current; otherwise the
     // disconnect/unplug path, or a newer connection, owns it.
     if (this.client === client && client.isConnected()) {
-      this.set({ state: "ready", error: outcome.status === "failed" ? outcome.error : undefined });
+      this.set({
+        state: "ready",
+        error: outcome.status === "failed" ? outcome.error : undefined,
+      });
       this.touch();
     }
     return outcome;

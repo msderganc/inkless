@@ -2,7 +2,11 @@
  * Regression tests for the printer-layer code review (connect/disconnect races, stale jobs,
  * stalled feeds, pending requests, stream end, port left open).
  */
-import { type EncodedImage, LabelType, PacketGenerator } from "@mmote/niimbluelib";
+import {
+  type EncodedImage,
+  LabelType,
+  PacketGenerator,
+} from "@mmote/niimbluelib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nodeEnv } from "~/test/canvas-env";
 import { B21S_V40_28 } from "~/test/b21s-dump";
@@ -13,7 +17,13 @@ import { emptyDesign } from "../design";
 import { encodeForPrinter } from "../render/encode";
 import { renderLabel } from "../render/render";
 import { B21SerialClient } from "./serial-client";
-import { DEFAULT_DENSITY, type LockProvider, PrinterSession, type PrintJob, type SessionDeps } from "./session";
+import {
+  DEFAULT_DENSITY,
+  type LockProvider,
+  PrinterSession,
+  type PrintJob,
+  type SessionDeps,
+} from "./session";
 
 const table = parseDump(B21S_V40_28);
 const sessions: PrinterSession[] = [];
@@ -21,7 +31,10 @@ afterEach(async () => {
   await Promise.all(sessions.splice(0).map((s) => s.disconnect()));
 });
 
-function makeSession(ports: FakeSerialPort[], extra: Partial<SessionDeps> = {}) {
+function makeSession(
+  ports: FakeSerialPort[],
+  extra: Partial<SessionDeps> = {},
+) {
   let i = 0;
   const s = new PrinterSession({
     createClient: () => {
@@ -38,7 +51,9 @@ function makeSession(ports: FakeSerialPort[], extra: Partial<SessionDeps> = {}) 
 
 const blankPage = async (): Promise<EncodedImage> => {
   const spec = findLabel("rect-40x30")!;
-  return encodeForPrinter((await renderLabel(emptyDesign(spec.id), spec, nodeEnv)).print);
+  return encodeForPrinter(
+    (await renderLabel(emptyDesign(spec.id), spec, nodeEnv)).print,
+  );
 };
 const job = (pageCount = 1): PrintJob => ({
   pageCount,
@@ -102,7 +117,10 @@ describe("connect/disconnect races", () => {
       },
     });
     await s.connect();
-    expect(s.getStatus()).toMatchObject({ state: "error", error: "locks unavailable" });
+    expect(s.getStatus()).toMatchObject({
+      state: "error",
+      error: "locks unavailable",
+    });
   });
 });
 
@@ -114,7 +132,9 @@ describe("jobs and connection changes", () => {
     await s.connect();
     const out = await s.print(job(3));
     expect(out).toMatchObject({ status: "failed", printed: 0 });
-    expect(out.status === "failed" && out.error).toMatch(/did not finish the label in time/);
+    expect(out.status === "failed" && out.error).toMatch(
+      /did not finish the label in time/,
+    );
     expect(port.ended).toBe(1);
     expect(s.getStatus().state).toBe("ready");
   }, 20_000);
@@ -188,14 +208,19 @@ describe("B21SerialClient review fixes", () => {
     const port = new FakeSerialPort(table);
     const c = await connected(port);
     port.silent = true;
-    const pending = c.sendPacketWaitResponse(PacketGenerator.printStatus(), 10_000);
+    const pending = c.sendPacketWaitResponse(
+      PacketGenerator.printStatus(),
+      10_000,
+    );
     await new Promise((r) => setTimeout(r, 20));
     const t0 = Date.now();
     port.unplug();
     await expect(pending).rejects.toThrow(/disconnected/);
     expect(Date.now() - t0).toBeLessThan(1_000);
     // The mutex is free again: a new request fails fast rather than queueing behind the old one.
-    await expect(c.sendPacketWaitResponse(PacketGenerator.printStatus(), 10_000)).rejects.toThrow();
+    await expect(
+      c.sendPacketWaitResponse(PacketGenerator.printStatus(), 10_000),
+    ).rejects.toThrow();
   });
 
   it("treats a stream that ends on its own as a disconnect", async () => {

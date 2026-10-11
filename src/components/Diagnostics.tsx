@@ -13,7 +13,8 @@ import { useApp, useSessionStatus } from "./app-context";
 import { StatusBar } from "./StatusBar";
 
 const box = "space-y-3 rounded border border-neutral-200 bg-white p-4";
-const btn = "rounded border px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50";
+const btn =
+  "rounded border px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50";
 
 export default function Diagnostics() {
   const { session, settings, updateSettings } = useApp();
@@ -37,9 +38,12 @@ export default function Diagnostics() {
         copies: 1,
         density: DEFAULT_DENSITY,
         labelType: LabelType.WithGaps,
-        renderPage: async () => encodeForPrinter(shiftColumns(testPattern(30), settings.offsetDots)),
+        renderPage: async () =>
+          encodeForPrinter(shiftColumns(testPattern(30), settings.offsetDots)),
       });
-      setResult(out.status === "failed" ? out.error : `Test pattern ${out.status}.`);
+      setResult(
+        out.status === "failed" ? out.error : `Test pattern ${out.status}.`,
+      );
     } catch (e) {
       setResult(e instanceof Error ? e.message : String(e));
     }
@@ -53,7 +57,11 @@ export default function Diagnostics() {
           <h2 className="font-semibold">Printer</h2>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-neutral-500">Model</dt>
-            <dd>{status.identity ? `${status.identity.model ?? "?"} (id ${status.identity.modelId})` : "—"}</dd>
+            <dd>
+              {status.identity
+                ? `${status.identity.model ?? "?"} (id ${status.identity.modelId})`
+                : "—"}
+            </dd>
             <dt className="text-neutral-500">Firmware</dt>
             <dd>{status.identity?.firmware ?? "—"}</dd>
             <dt className="text-neutral-500">Hardware</dt>
@@ -61,9 +69,21 @@ export default function Diagnostics() {
             <dt className="text-neutral-500">Serial</dt>
             <dd>{status.identity?.serial ?? "—"}</dd>
             <dt className="text-neutral-500">Lid</dt>
-            <dd>{status.heartbeat?.lidClosed === undefined ? "—" : status.heartbeat.lidClosed ? "Closed" : "Open"}</dd>
+            <dd>
+              {status.heartbeat?.lidClosed === undefined
+                ? "—"
+                : status.heartbeat.lidClosed
+                  ? "Closed"
+                  : "Open"}
+            </dd>
             <dt className="text-neutral-500">Labels loaded</dt>
-            <dd>{status.heartbeat?.paperInserted === undefined ? "—" : status.heartbeat.paperInserted ? "Yes" : "No"}</dd>
+            <dd>
+              {status.heartbeat?.paperInserted === undefined
+                ? "—"
+                : status.heartbeat.paperInserted
+                  ? "Yes"
+                  : "No"}
+            </dd>
           </dl>
         </section>
 
@@ -80,31 +100,61 @@ export default function Diagnostics() {
                 {status.rfid.usedPaper} / {status.rfid.allPaper}
               </dd>
               <dt className="text-neutral-500">Type</dt>
-              <dd>{LabelType[status.rfid.consumablesType] ?? status.rfid.consumablesType}</dd>
+              <dd>
+                {LabelType[status.rfid.consumablesType] ??
+                  status.rfid.consumablesType}
+              </dd>
             </dl>
           ) : (
             <p className="text-sm text-neutral-500">No tag read.</p>
           )}
           <div className="flex gap-2">
-            <button type="button" className={btn} disabled={!ready} onClick={() => void session.refreshRfid()}>
+            <button
+              type="button"
+              className={btn}
+              disabled={!ready}
+              onClick={() => void session.refreshRfid()}
+            >
               Re-read tag
             </button>
-            <button type="button" className={btn} disabled={!ready} onClick={() => void session.readPaperInfo().then((p) => setPaper(p ?? null))}>
+            <button
+              type="button"
+              className={btn}
+              disabled={!ready}
+              onClick={() =>
+                void session.readPaperInfo().then((p) => setPaper(p ?? null))
+              }
+            >
               Read paper info
             </button>
           </div>
-          {paper === null && <p className="text-sm text-neutral-500">The printer did not report paper info.</p>}
-          {paper && <pre className="overflow-auto rounded bg-neutral-50 p-2 text-xs">{JSON.stringify(paper, null, 2)}</pre>}
+          {paper === null && (
+            <p className="text-sm text-neutral-500">
+              The printer did not report paper info.
+            </p>
+          )}
+          {paper && (
+            <pre className="overflow-auto rounded bg-neutral-50 p-2 text-xs">
+              {JSON.stringify(paper, null, 2)}
+            </pre>
+          )}
         </section>
 
         <section className={box}>
           <h2 className="font-semibold">Test print and calibration</h2>
           <p className="text-sm text-neutral-600">
-            Prints a 48 mm wide ruler with a border and five darkness blocks on a 30 mm label. Use 50 mm wide stock. If the
-            pattern is off-centre, adjust the offset (8 dots ≈ 1 mm). It shifts every print, including this pattern.
+            Prints a 48 mm wide ruler with a border and five darkness blocks on
+            a 30 mm label. Use 50 mm wide stock. If the pattern is off-centre,
+            adjust the offset (8 dots ≈ 1 mm). It shifts every print, including
+            this pattern.
           </p>
           <div className="flex items-center gap-3">
-            <button type="button" className={btn} disabled={!ready} onClick={() => void printPattern()}>
+            <button
+              type="button"
+              className={btn}
+              disabled={!ready}
+              onClick={() => void printPattern()}
+            >
               Print test pattern
             </button>
             <label className="flex items-center gap-2 text-sm">
@@ -115,11 +165,22 @@ export default function Diagnostics() {
                 min={-16}
                 max={16}
                 value={settings.offsetDots}
-                onChange={(e) => void updateSettings({ offsetDots: Math.max(-16, Math.min(16, Math.round(Number(e.target.value) || 0))) })}
+                onChange={(e) =>
+                  void updateSettings({
+                    offsetDots: Math.max(
+                      -16,
+                      Math.min(16, Math.round(Number(e.target.value) || 0)),
+                    ),
+                  })
+                }
               />
             </label>
           </div>
-          {result && <p className="text-sm" role="status">{result}</p>}
+          {result && (
+            <p className="text-sm" role="status">
+              {result}
+            </p>
+          )}
         </section>
 
         <LabelCalibration />
@@ -127,12 +188,24 @@ export default function Diagnostics() {
         <section className={`${box} md:col-span-2`}>
           <h2 className="font-semibold">Troubleshooting log</h2>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={settings.diagnostics} onChange={(e) => void updateSettings({ diagnostics: e.target.checked })} />
-            Record the last 500 printer packets (off by default; kept only in memory)
+            <input
+              type="checkbox"
+              checked={settings.diagnostics}
+              onChange={(e) =>
+                void updateSettings({ diagnostics: e.target.checked })
+              }
+            />
+            Record the last 500 printer packets (off by default; kept only in
+            memory)
           </label>
           {settings.diagnostics && (
             <pre className="max-h-80 overflow-auto rounded bg-neutral-900 p-2 text-xs text-neutral-100">
-              {log.map((e) => `${new Date(e.time).toISOString().slice(11, 23)} ${e.dir} ${e.hex}`).join("\n") || "No packets yet."}
+              {log
+                .map(
+                  (e) =>
+                    `${new Date(e.time).toISOString().slice(11, 23)} ${e.dir} ${e.hex}`,
+                )
+                .join("\n") || "No packets yet."}
             </pre>
           )}
         </section>
@@ -161,14 +234,20 @@ function LabelCalibration() {
       await reloadOverrides();
       setMsg("Saved.");
     } catch {
-      setMsg("Invalid. Allowed keys: widthMm, heightMm, cornerRadiusMm, panels [{y,height},{y,height}], flag {y,height}, wrap {y,height}.");
+      setMsg(
+        "Invalid. Allowed keys: widthMm, heightMm, cornerRadiusMm, panels [{y,height},{y,height}], flag {y,height}, wrap {y,height}.",
+      );
     }
   };
 
   return (
     <section className={box}>
       <h2 className="font-semibold">Measured label geometry</h2>
-      <select className="w-full rounded border px-2 py-1 text-sm" value={labelId} onChange={(e) => setLabelId(e.target.value)}>
+      <select
+        className="w-full rounded border px-2 py-1 text-sm"
+        value={labelId}
+        onChange={(e) => setLabelId(e.target.value)}
+      >
         {CATALOGUE.map((l) => (
           <option key={l.id} value={l.id}>
             {l.name}
@@ -177,11 +256,17 @@ function LabelCalibration() {
       </select>
       <p className="text-xs text-neutral-600">
         Current: {spec.widthMm} × {spec.heightMm} mm
-        {spec.panels && `, panels ${spec.panels.map((p) => `${p.y}+${p.height}`).join(" / ")} mm`}
+        {spec.panels &&
+          `, panels ${spec.panels.map((p) => `${p.y}+${p.height}`).join(" / ")} mm`}
         {spec.flag && `, flag ${spec.flag.y}+${spec.flag.height}`}
         {spec.wrap && `, wrap ${spec.wrap.y}+${spec.wrap.height} mm`}
       </p>
-      <textarea className="min-h-28 w-full rounded border p-2 font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} aria-label="Override JSON" />
+      <textarea
+        className="min-h-28 w-full rounded border p-2 font-mono text-xs"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        aria-label="Override JSON"
+      />
       <div className="flex gap-2">
         <button type="button" className={btn} onClick={() => void save()}>
           Save

@@ -10,7 +10,8 @@ export function testPattern(heightMm = 30, width = PRINTHEAD_DOTS): MonoBitmap {
   const height = mmToDots(heightMm);
   const bmp = createMono(width, height);
   const set = (x: number, y: number) => {
-    if (x >= 0 && y >= 0 && x < width && y < height) bmp.data[y * width + x] = 1;
+    if (x >= 0 && y >= 0 && x < width && y < height)
+      bmp.data[y * width + x] = 1;
   };
 
   for (let x = 0; x < width; x++) {
@@ -25,7 +26,12 @@ export function testPattern(heightMm = 30, width = PRINTHEAD_DOTS): MonoBitmap {
 
   for (let mm = 0; mm * DOTS_PER_MM < width; mm++) {
     const x = Math.round(mm * DOTS_PER_MM);
-    const len = mm % 10 === 0 ? mmToDots(4) : mm % 5 === 0 ? mmToDots(2.5) : mmToDots(1.2);
+    const len =
+      mm % 10 === 0
+        ? mmToDots(4)
+        : mm % 5 === 0
+          ? mmToDots(2.5)
+          : mmToDots(1.2);
     for (let y = 1; y <= len; y++) set(x, y);
   }
 

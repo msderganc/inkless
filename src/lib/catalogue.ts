@@ -157,14 +157,18 @@ export const FAMILY_NAMES: Record<ShapeFamily, string> = {
   cable: "Cable label",
 };
 
-export function findLabel(id: string, custom: readonly LabelSpec[] = []): LabelSpec | undefined {
+export function findLabel(
+  id: string,
+  custom: readonly LabelSpec[] = [],
+): LabelSpec | undefined {
   return CATALOGUE.find((l) => l.id === id) ?? custom.find((l) => l.id === id);
 }
 
 export const MAX_FEED_MM = 200;
 
 export function customRect(widthMm: number, heightMm: number): LabelSpec {
-  if (!(widthMm > 0 && widthMm <= 50)) throw new RangeError("Width must be between 0 and 50 mm");
+  if (!(widthMm > 0 && widthMm <= 50))
+    throw new RangeError("Width must be between 0 and 50 mm");
   if (!(heightMm > 0 && heightMm <= MAX_FEED_MM)) {
     throw new RangeError(`Length must be between 0 and ${MAX_FEED_MM} mm`);
   }
@@ -182,9 +186,15 @@ export function customRect(widthMm: number, heightMm: number): LabelSpec {
 
 /** Partial geometry overrides a user can save after measuring a real roll. */
 export type LabelOverride = Partial<
-  Pick<LabelSpec, "widthMm" | "heightMm" | "cornerRadiusMm" | "panels" | "flag" | "wrap">
+  Pick<
+    LabelSpec,
+    "widthMm" | "heightMm" | "cornerRadiusMm" | "panels" | "flag" | "wrap"
+  >
 >;
 
-export function applyOverride(spec: LabelSpec, override: LabelOverride | undefined): LabelSpec {
+export function applyOverride(
+  spec: LabelSpec,
+  override: LabelOverride | undefined,
+): LabelSpec {
   return override ? { ...spec, ...override } : spec;
 }

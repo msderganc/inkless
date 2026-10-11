@@ -14,7 +14,11 @@ describe("mmToDots", () => {
 
 describe("printWindow", () => {
   it("crops 50 mm stock symmetrically to the printhead", () => {
-    expect(printWindow(50)).toEqual({ labelDots: 400, start: 8, width: PRINTHEAD_DOTS });
+    expect(printWindow(50)).toEqual({
+      labelDots: 400,
+      start: 8,
+      width: PRINTHEAD_DOTS,
+    });
   });
   it("sends narrow labels whole", () => {
     expect(printWindow(40)).toEqual({ labelDots: 320, start: 0, width: 320 });

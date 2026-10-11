@@ -4,7 +4,16 @@ import { FakeSerialPort, parseDump } from "./fake-serial-port";
 function packet(cmd: number, data: number[]): Uint8Array {
   let sum = cmd ^ data.length;
   for (const d of data) sum ^= d;
-  return new Uint8Array([0x55, 0x55, cmd, data.length, ...data, sum, 0xaa, 0xaa]);
+  return new Uint8Array([
+    0x55,
+    0x55,
+    cmd,
+    data.length,
+    ...data,
+    sum,
+    0xaa,
+    0xaa,
+  ]);
 }
 
 /** Request → response command ids for the D110-style print sequence (NiimBlueLib commands.ts). */
@@ -43,7 +52,10 @@ export class SimulatedB21S extends FakeSerialPort {
     super(parseDump(B21S_V40_28));
   }
 
-  protected override respond(p: Uint8Array, key: string): Uint8Array | undefined {
+  protected override respond(
+    p: Uint8Array,
+    key: string,
+  ): Uint8Array | undefined {
     const known = super.respond(p, key);
     if (known && known[2] !== 0x00) return known;
     const cmd = p[2]!;
@@ -60,7 +72,10 @@ export class SimulatedB21S extends FakeSerialPort {
         this.labelType = data[0];
         break;
       case 0x13:
-        this.pageSizes.push({ rows: (data[0]! << 8) | data[1]!, cols: (data[2]! << 8) | data[3]! });
+        this.pageSizes.push({
+          rows: (data[0]! << 8) | data[1]!,
+          cols: (data[2]! << 8) | data[3]!,
+        });
         break;
       case 0x15:
         this.quantity = (data[0]! << 8) | data[1]!;
@@ -72,9 +87,19 @@ export class SimulatedB21S extends FakeSerialPort {
         this.ended++;
         break;
       case 0xa3: {
-        const status = [this.pagesPrinted >> 8, this.pagesPrinted & 0xff, 100, 100];
+        const status = [
+          this.pagesPrinted >> 8,
+          this.pagesPrinted & 0xff,
+          100,
+          100,
+        ];
         // 10-byte form: page(2) printProgress feedProgress ?(2) error ...(3) — parsePrintStatusResponse.
-        return packet(0xb3, this.statusError ? [...status, 0, 0, this.statusError, 0, 0, 0] : status);
+        return packet(
+          0xb3,
+          this.statusError
+            ? [...status, 0, 0, this.statusError, 0, 0, 0]
+            : status,
+        );
       }
     }
     const ack = ACK[cmd];

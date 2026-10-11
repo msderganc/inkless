@@ -5,7 +5,12 @@ import { type LabelSpec } from "~/lib/catalogue";
 import { type Design, type DesignElement } from "~/lib/design";
 import { DOTS_PER_MM, dotsToMm, printWindow } from "~/lib/geometry";
 import { type MonoBitmap } from "~/lib/render/mono";
-import { guideLines, safeRegion, traceOutline, traceRegion } from "~/lib/shapes";
+import {
+  guideLines,
+  safeRegion,
+  traceOutline,
+  traceRegion,
+} from "~/lib/shapes";
 
 interface Props {
   spec: LabelSpec;
@@ -18,12 +23,27 @@ interface Props {
   onChange: (el: DesignElement) => void;
 }
 
-type Drag = { id: string; mode: "move" | "resize"; startX: number; startY: number; orig: DesignElement };
+type Drag = {
+  id: string;
+  mode: "move" | "resize";
+  startX: number;
+  startY: number;
+  orig: DesignElement;
+};
 
 const MIN_SIZE_MM = 2;
 
 /** Label canvas: printed-pixel preview, die-cut outline, safe area, guides and draggable element boxes. */
-export function Workspace({ spec, design, preview, view, selectedId, zoom, onSelect, onChange }: Props) {
+export function Workspace({
+  spec,
+  design,
+  preview,
+  view,
+  selectedId,
+  zoom,
+  onSelect,
+  onChange,
+}: Props) {
   const pixels = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const [drag, setDrag] = useState<Drag>();
@@ -91,8 +111,14 @@ export function Workspace({ spec, design, preview, view, selectedId, zoom, onSel
       const dy = (e.clientY - drag.startY) / zoom;
       const round = (v: number) => Math.round(v * 4) / 4; // 0.25 mm steps
       const o = drag.orig;
-      if (drag.mode === "move") onChange({ ...o, x: round(o.x + dx), y: round(o.y + dy) });
-      else onChange({ ...o, w: Math.max(MIN_SIZE_MM, round(o.w + dx)), h: Math.max(MIN_SIZE_MM, round(o.h + dy)) });
+      if (drag.mode === "move")
+        onChange({ ...o, x: round(o.x + dx), y: round(o.y + dy) });
+      else
+        onChange({
+          ...o,
+          w: Math.max(MIN_SIZE_MM, round(o.w + dx)),
+          h: Math.max(MIN_SIZE_MM, round(o.h + dy)),
+        });
     };
     const up = () => setDrag(undefined);
     window.addEventListener("pointermove", move);
@@ -105,17 +131,32 @@ export function Workspace({ spec, design, preview, view, selectedId, zoom, onSel
     };
   }, [drag, zoom, onChange]);
 
-  const startDrag = (e: React.PointerEvent, el: DesignElement, mode: Drag["mode"]) => {
+  const startDrag = (
+    e: React.PointerEvent,
+    el: DesignElement,
+    mode: Drag["mode"],
+  ) => {
     e.stopPropagation();
     e.preventDefault();
     onSelect(el.id);
-    setDrag({ id: el.id, mode, startX: e.clientX, startY: e.clientY, orig: el });
+    setDrag({
+      id: el.id,
+      mode,
+      startX: e.clientX,
+      startY: e.clientY,
+      orig: el,
+    });
   };
 
   return (
     <div
       className="relative bg-white shadow-sm ring-1 ring-neutral-300"
-      style={{ width: w, height: h, borderRadius: spec.family === "round" || spec.family === "wave" ? "50%" : 6 }}
+      style={{
+        width: w,
+        height: h,
+        borderRadius:
+          spec.family === "round" || spec.family === "wave" ? "50%" : 6,
+      }}
       onPointerDown={() => onSelect(undefined)}
     >
       <canvas
@@ -124,7 +165,12 @@ export function Workspace({ spec, design, preview, view, selectedId, zoom, onSel
         style={{ width: w, height: h, imageRendering: "pixelated" }}
         aria-label="Print preview"
       />
-      <canvas ref={overlay} className="pointer-events-none absolute inset-0" style={{ width: w, height: h }} aria-hidden />
+      <canvas
+        ref={overlay}
+        className="pointer-events-none absolute inset-0"
+        style={{ width: w, height: h }}
+        aria-hidden
+      />
       {view === "design" &&
         design.elements.map((el) => {
           const selected = el.id === selectedId;
@@ -136,7 +182,12 @@ export function Workspace({ spec, design, preview, view, selectedId, zoom, onSel
               aria-label={el.kind === "text" ? `Text: ${el.text}` : "Image"}
               aria-pressed={selected}
               className={`absolute cursor-move ${selected ? "outline-2 outline-sky-500" : "outline-1 outline-transparent hover:outline-neutral-400"} outline-dashed`}
-              style={{ left: el.x * zoom, top: el.y * zoom, width: el.w * zoom, height: el.h * zoom }}
+              style={{
+                left: el.x * zoom,
+                top: el.y * zoom,
+                width: el.w * zoom,
+                height: el.h * zoom,
+              }}
               onPointerDown={(e) => startDrag(e, el, "move")}
               onFocus={() => onSelect(el.id)}
             >
