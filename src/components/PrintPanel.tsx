@@ -1,0 +1,174 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { BatchError, type BatchSpec, batchValues, MAX_BATCH, parseList } from "~/lib/batch";
+import { MAX_COPIES } from "~/lib/printer/session";
+
+interface Props {
+  batch: BatchSpec;
+  onBatch: (b: BatchSpec) => void;
+  copies: number;
+  onCopies: (n: number) => void;
+  density: number;
+  onDensity: (n: number) => void;
+  usesPlaceholder: boolean;
+  state: string;
+  progress?: { done: number; total: number };
+  onPrint: () => void;
+  onCancel: () => void;
+  lastResult?: string;
+}
+
+const field = "rounded border border-neutral-300 px-2 py-1";
+
+export function PrintPanel(p: Props) {
+  const [listText, setListText] = useState(p.batch.kind === "list" ? p.batch.items.join("\n") : "");
+  const summary = useMemo(() => {
+    try {
+      const v = batchValues(p.batch);
+      if (v[0] === null) return { count: 1 };
+      return { count: v.length, first: v[0], last: v[v.length - 1] };
+    } catch (e) {
+      return { error: e instanceof BatchError ? e.message : String(e) };
+    }
+  }, [p.batch]);
+
+  const printing = p.state === "printing" || p.state === "cancelling";
+  const labels = "count" in summary ? summary.count! * p.copies : 0;
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">Print</h2>
+
+      <div className="flex flex-wrap items-end gap-3 text-sm">
+        <label className="flex flex-col text-xs text-neutral-600">
+          Copies of each
+          <input
+            className={`${field} w-20 text-sm text-neutral-900`}
+            type="number"
+            min={1}
+            max={MAX_COPIES}
+            value={p.copies}
+            onChange={(e) => p.onCopies(Math.min(MAX_COPIES, Math.max(1, Math.round(Number(e.target.value) || 1))))}
+          />
+        </label>
+        <label className="flex flex-col text-xs text-neutral-600">
+          Darkness {p.density}
+          <input type="range" min={1} max={5} value={p.density} onChange={(e) => p.onDensity(Number(e.target.value))} />
+        </label>
+      </div>
+
+      <fieldset className="space-y-2 text-sm">
+        <legend className="mb-1 text-xs text-neutral-600">Batch</legend>
+        <div className="flex gap-3">
+          {(["none", "sequence", "list"] as const).map((k) => (
+            <label key={k} className="flex items-center gap-1">
+              <input
+                type="radio"
+                name="batch"
+                checked={p.batch.kind === k}
+                onChange={() =>
+                  p.onBatch(
+                    k === "none"
+                      ? { kind: "none" }
+                      : k === "sequence"
+                        ? { kind: "sequence", start: 1, step: 1, count: 10, pad: 0, prefix: "", suffix: "" }
+                        : { kind: "list", items: parseList(listText) },
+                  )
+                }
+              />
+              {k === "none" ? "Single" : k === "sequence" ? "Numbers" : "List"}
+            </label>
+          ))}
+        </div>
+
+        {p.batch.kind === "sequence" && <SequenceFields b={p.batch} onChange={p.onBatch} />}
+        {p.batch.kind === "list" && (
+          <textarea
+            className={`${field} min-h-24 w-full font-mono text-xs`}
+            placeholder="One value per line"
+            value={listText}
+            onChange={(e) => {
+              setListText(e.target.value);
+              p.onBatch({ kind: "list", items: parseList(e.target.value) });
+            }}
+          />
+        )}
+
+        {p.batch.kind !== "none" && !p.usesPlaceholder && (
+          <p className="text-xs text-amber-700">Add {"{n}"} to a text box to print the batch value on each label.</p>
+        )}
+        {"error" in summary ? (
+          <p className="text-xs text-red-700">{summary.error}</p>
+        ) : (
+          summary.first !== undefined && (
+            <p className="text-xs text-neutral-500">
+              {summary.count} labels: “{summary.first}” … “{summary.last}” (max {MAX_BATCH})
+            </p>
+          )
+        )}
+      </fieldset>
+
+      <div className="flex items-center gap-2">
+        {printing ? (
+          <button
+            type="button"
+            className="rounded bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600 disabled:opacity-60"
+            onClick={p.onCancel}
+            disabled={p.state === "cancelling"}
+          >
+            {p.state === "cancelling" ? "Stopping after this label…" : "Cancel"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+            onClick={p.onPrint}
+            disabled={p.state !== "ready" || "error" in summary}
+            title={p.state !== "ready" ? "Connect the printer first" : undefined}
+          >
+            Print {labels > 1 ? `${labels} labels` : ""}
+          </button>
+        )}
+        {p.progress && printing && (
+          <progress className="h-2 flex-1" max={p.progress.total} value={p.progress.done} aria-label="Print progress" />
+        )}
+      </div>
+      {p.lastResult && <p className="text-sm text-neutral-700" role="status">{p.lastResult}</p>}
+    </section>
+  );
+}
+
+function SequenceFields({ b, onChange }: { b: Extract<BatchSpec, { kind: "sequence" }>; onChange: (b: BatchSpec) => void }) {
+  const num = (label: string, key: "start" | "step" | "count" | "pad", min: number) => (
+    <label className="flex flex-col text-xs text-neutral-600">
+      {label}
+      <input
+        className={`${field} w-16 text-sm text-neutral-900`}
+        type="number"
+        min={min}
+        value={b[key]}
+        onChange={(e) => {
+          const v = Math.round(Number(e.target.value));
+          if (Number.isFinite(v)) onChange({ ...b, [key]: Math.max(min, v) });
+        }}
+      />
+    </label>
+  );
+  const text = (label: string, key: "prefix" | "suffix") => (
+    <label className="flex flex-col text-xs text-neutral-600">
+      {label}
+      <input className={`${field} w-20 text-sm text-neutral-900`} maxLength={50} value={b[key]} onChange={(e) => onChange({ ...b, [key]: e.target.value })} />
+    </label>
+  );
+  return (
+    <div className="flex flex-wrap gap-2">
+      {text("Prefix", "prefix")}
+      {num("Start", "start", -999999)}
+      {num("Step", "step", 1)}
+      {num("Count", "count", 1)}
+      {num("Digits", "pad", 0)}
+      {text("Suffix", "suffix")}
+    </div>
+  );
+}

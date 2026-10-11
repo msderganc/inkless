@@ -93,6 +93,20 @@ describe("renderLabel", () => {
     expect(cx).toBeGreaterThan(spec.widthMm / 2);
     expect(cy).toBeGreaterThan(p1.y + p1.height / 2);
     expect(cy).toBeLessThan(p1.y + p1.height);
+
+    // Design view keeps panel 1 upright, where the user placed it.
+    const d = await renderLabel(design(spec, [el]), spec, nodeEnv, { view: "design" });
+    let dy = 0;
+    let dn = 0;
+    for (let y = 0; y < d.label.height; y++) {
+      for (let x = 0; x < w; x++) {
+        if (d.label.data[y * w + x]) {
+          dy += y;
+          dn++;
+        }
+      }
+    }
+    expect(dy / dn / DOTS_PER_MM).toBeLessThan(p1.y + p1.height / 2);
   });
 
   it("cable: repeatInWrap tiles the flag into the wrap zone", async () => {

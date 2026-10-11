@@ -4,11 +4,23 @@ import {
   type HeartbeatData,
   LabelType,
   type NiimbotAbstractClient,
+  type NiimbotPacket,
+  type PaperInfo,
   PrintError,
   PrinterErrorCode,
   type PrintOptions,
   type RfidInfo,
 } from "@mmote/niimbluelib";
+
+import { RingLog } from "../ring-log";
+
+export const PACKET_LOG_SIZE = 500;
+
+export interface PacketLogEntry {
+  time: number;
+  dir: ">>" | "<<";
+  hex: string;
+}
 
 /** B21S model ids (NiimBlueLib printer_models: B21S = 777, B21S_C2B = 776). */
 export const SUPPORTED_MODEL_IDS = [777, 776] as const;
@@ -69,7 +81,7 @@ export const ACTIVE_WINDOW_MS = 30_000;
 
 export const MAX_COPIES = 100;
 
-const ERROR_TEXT: Partial<Record<PrinterErrorCode, string>> = {
+const ERROR_TEXT: Partial<Record<number, string>> = {
   [PrinterErrorCode.CoverOpen]: "The printer lid is open.",
   [PrinterErrorCode.LackPaper]: "The printer is out of labels.",
   [PrinterErrorCode.PaperOutException]: "Label feed problem. Check the roll.",
@@ -83,7 +95,7 @@ const ERROR_TEXT: Partial<Record<PrinterErrorCode, string>> = {
 
 export function describeError(e: unknown): string {
   if (e instanceof PrintError) {
-    return ERROR_TEXT[e.reasonId as PrinterErrorCode] ?? `Printer error ${e.reasonId} (${PrinterErrorCode[e.reasonId] ?? "unknown"}).`;
+    return ERROR_TEXT[e.reasonId] ?? `Printer error ${e.reasonId} (${PrinterErrorCode[e.reasonId] ?? "unknown"}).`;
   }
   if (e instanceof DOMException) {
     if (e.name === "NotFoundError") return "No printer was selected.";
@@ -209,14 +221,51 @@ export class PrinterSession {
     };
     const onHeartbeat = (e: { data: HeartbeatData }) => this.set({ heartbeat: e.data });
     const onRfid = (e: { info: { labelRfidInfo?: RfidInfo } }) => this.set({ rfid: e.info.labelRfidInfo });
+    const onSent = (e: { packet: NiimbotPacket }) => this.logPacket(">>", e.packet);
+    const onReceived = (e: { packet: NiimbotPacket }) => this.logPacket("<<", e.packet);
     client.on("disconnect", onDisconnect);
     client.on("heartbeat", onHeartbeat);
     client.on("rfidinfofetched", onRfid);
+    client.on("packetsent", onSent);
+    client.on("packetreceived", onReceived);
     this.detach.push(() => {
       client.off("disconnect", onDisconnect);
       client.off("heartbeat", onHeartbeat);
       client.off("rfidinfofetched", onRfid);
+      client.off("packetsent", onSent);
+      client.off("packetreceived", onReceived);
     });
+  }
+
+  private packetLog?: RingLog<PacketLogEntry>;
+
+  /** Opt-in troubleshooting log of the last PACKET_LOG_SIZE packets (off by default). */
+  setPacketLogging(enabled: boolean) {
+    this.packetLog = enabled ? (this.packetLog ?? new RingLog(PACKET_LOG_SIZE)) : undefined;
+  }
+
+  getPacketLog(): PacketLogEntry[] {
+    return this.packetLog?.toArray() ?? [];
+  }
+
+  private logPacket(dir: ">>" | "<<", packet: NiimbotPacket) {
+    if (!this.packetLog) return;
+    const hex = [...packet.toBytes()].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    this.packetLog.push({ time: this.now(), dir, hex });
+  }
+
+  /** Media info reported by the printer, if this model answers (V1: unverified on B21S). */
+  async readPaperInfo(): Promise<PaperInfo | undefined> {
+    if (this.status.state !== "ready" || !this.client) return undefined;
+    this.touch();
+    return this.client.protocol.getPaperInfo().catch(() => undefined);
+  }
+
+  /** Re-read the roll's RFID tag. */
+  async refreshRfid(): Promise<void> {
+    if (this.status.state !== "ready" || !this.client) return;
+    this.touch();
+    await this.client.fetchRfidInfo();
   }
 
   /** Report page visibility; heartbeat stops while hidden. */

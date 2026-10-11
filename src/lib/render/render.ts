@@ -54,6 +54,11 @@ export interface RenderOptions {
   batchValue?: string | null;
   /** Horizontal calibration offset in dots. */
   offsetDots?: number;
+  /**
+   * "print" (default): exactly what is sent to the printer.
+   * "design": as the user designs it — jewelry panel 1 upright and no wrap repeat.
+   */
+  view?: "print" | "design";
 }
 
 export interface RenderResult {
@@ -197,6 +202,7 @@ export async function renderLabel(
 
   const gray = luminance(ctx.getImageData(0, 0, width, height).data, width, height);
   const label = threshold(gray, width, height, 128);
-  applyShapeTransforms(label, spec, design);
+  if (opts.view === "design") maskToSafeArea(label, spec);
+  else applyShapeTransforms(label, spec, design);
   return { label, print: cropColumns(label, window.start, window.width), window };
 }

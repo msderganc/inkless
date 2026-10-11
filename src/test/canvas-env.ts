@@ -3,7 +3,7 @@ import { type RenderEnv } from "~/lib/render/render";
 
 /** Node rendering environment for tests (same 2D API as the browser). */
 export const nodeEnv: RenderEnv = {
-  createCanvas: (w, h) => createCanvas(w, h) as unknown as ReturnType<RenderEnv["createCanvas"]>,
+  createCanvas: (w, h) => createCanvas(w, h),
   loadImage: async (src) => loadImage(src),
 };
 

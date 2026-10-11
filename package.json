@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
-    "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache"
+    "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
+    "postbuild": "node scripts/postbuild.mjs"
   },
   "dependencies": {
     "@mmote/niimbluelib": "0.47.0",

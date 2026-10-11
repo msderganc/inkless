@@ -144,6 +144,6 @@ export function browserPortSource(): PortSource {
     const granted = (await serial.getPorts()).filter((p) => p.getInfo().usbVendorId === NIIMBOT_USB_VENDOR_ID);
     if (granted.length === 1) return granted[0] as unknown as SerialPortLike;
     const port = await serial.requestPort({ filters: [{ usbVendorId: NIIMBOT_USB_VENDOR_ID }] });
-    return port as unknown as SerialPortLike;
+    return port;
   };
 }

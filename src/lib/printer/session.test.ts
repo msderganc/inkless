@@ -156,18 +156,18 @@ describe("PrinterSession heartbeat cadence", () => {
     await session.connect();
     const c = client();
     expect(c.getHeartbeatInterval()).toBe(HEARTBEAT_ACTIVE_MS);
-    expect(c["heartbeatTimer"]).toBeDefined();
+    expect((c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer).toBeDefined();
 
     t += ACTIVE_WINDOW_MS + 1;
     await new Promise((r) => setTimeout(r, 1_100));
     expect(c.getHeartbeatInterval()).toBe(HEARTBEAT_IDLE_MS);
 
     session.setVisible(false);
-    expect(c["heartbeatTimer"]).toBeUndefined();
+    expect((c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer).toBeUndefined();
 
     session.setVisible(true);
     expect(c.getHeartbeatInterval()).toBe(HEARTBEAT_ACTIVE_MS);
-    expect(c["heartbeatTimer"]).toBeDefined();
+    expect((c as unknown as { heartbeatTimer?: unknown }).heartbeatTimer).toBeDefined();
   });
 });
 
@@ -236,6 +236,29 @@ describe("PrinterSession printing", () => {
     task.pageGates[0]!.resolve();
     await running;
     expect(session.getStatus().error).toMatch(/disconnected/);
+  });
+});
+
+describe("PrinterSession diagnostics", () => {
+  it("packet logging is off by default and bounded when on", async () => {
+    const { session } = setup();
+    await session.connect();
+    expect(session.getPacketLog()).toEqual([]);
+    session.setPacketLogging(true);
+    await session.refreshRfid();
+    const log = session.getPacketLog();
+    expect(log.some((e) => e.dir === ">>" && e.hex.startsWith("55 55 1a"))).toBe(true);
+    expect(log.some((e) => e.dir === "<<" && e.hex.startsWith("55 55 1b"))).toBe(true);
+    expect(log.length).toBeLessThanOrEqual(500);
+    session.setPacketLogging(false);
+    expect(session.getPacketLog()).toEqual([]);
+  });
+
+  it("paper info resolves to undefined when the printer does not answer", async () => {
+    const { session } = setup();
+    expect(await session.readPaperInfo()).toBeUndefined();
+    await session.connect();
+    expect(await session.readPaperInfo()).toBeUndefined();
   });
 });
 
