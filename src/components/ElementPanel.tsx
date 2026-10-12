@@ -11,6 +11,9 @@ import {
   AlignVerticalJustifyEnd,
   AlignVerticalJustifyStart,
   Bold,
+  FolderSearch,
+  Italic,
+  Underline,
   BringToFront,
   Copy,
   SendToBack,
@@ -24,24 +27,25 @@ import {
   type Rotation,
   type TextElement,
 } from "~/lib/design";
+import { useState } from "react";
+import {
+  canListInstalledFonts,
+  listInstalledFonts,
+  mergeFontLists,
+  WINDOWS_FONTS,
+} from "~/lib/fonts";
 import { IconButton } from "./IconButton";
 
-const FONTS = [
-  "Arial",
-  "Segoe UI",
-  "Calibri",
-  "Consolas",
-  "Times New Roman",
-  "Georgia",
-  "Impact",
-  "Verdana",
-];
+/** Installed fonts, once the user has allowed listing them (kept for the session). */
+let installedFonts: string[] | undefined;
 const ROTATIONS: Rotation[] = [0, 90, 180, 270];
 
 interface Props {
   element: DesignElement;
   spec: LabelSpec;
   onChange: (el: DesignElement) => void;
+  /** Merge a partial change into the current element (safe for several quick edits). */
+  onPatch: (id: string, patch: Partial<DesignElement>) => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onMove: (dir: "up" | "down") => void;
@@ -118,12 +122,13 @@ export function ElementPanel({
   element: el,
   spec,
   onChange,
+  onPatch,
   onDelete,
   onDuplicate,
   onMove,
 }: Props) {
   const set = <T extends DesignElement>(patch: Partial<T>) =>
-    onChange({ ...el, ...patch });
+    onPatch(el.id, patch);
 
   return (
     <section className="space-y-4">
@@ -234,6 +239,21 @@ function TextFields({
   el: TextElement;
   set: (p: Partial<TextElement>) => void;
 }) {
+  const [fonts, setFonts] = useState<string[]>(() =>
+    mergeFontLists(WINDOWS_FONTS, installedFonts ?? [], [el.fontFamily]),
+  );
+  const [fontNote, setFontNote] = useState<string>();
+  const loadInstalled = async () => {
+    try {
+      installedFonts = await listInstalledFonts();
+      setFonts(mergeFontLists(WINDOWS_FONTS, installedFonts, [el.fontFamily]));
+      setFontNote(`${installedFonts.length} installed fonts available.`);
+    } catch {
+      setFontNote(
+        "Font access was not allowed; showing the standard Windows fonts.",
+      );
+    }
+  };
   return (
     <div className="space-y-2">
       <label className="flex flex-col text-xs text-neutral-600">
@@ -252,8 +272,10 @@ function TextFields({
             value={el.fontFamily}
             onChange={(e) => set({ fontFamily: e.target.value })}
           >
-            {FONTS.map((f) => (
-              <option key={f}>{f}</option>
+            {fonts.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: `"${f}"` }}>
+                {f}
+              </option>
             ))}
           </select>
         </label>
@@ -267,6 +289,18 @@ function TextFields({
           }
         />
       </div>
+      {canListInstalledFonts() && !installedFonts && (
+        <div className="flex items-center gap-2 text-xs text-neutral-600">
+          <IconButton
+            icon={FolderSearch}
+            label="Show all fonts installed on this PC (the browser asks permission once)"
+            size="sm"
+            onClick={() => void loadInstalled()}
+          />
+          <span>Show all installed fonts</span>
+        </div>
+      )}
+      {fontNote && <p className="text-xs text-neutral-500">{fontNote}</p>}
       <div className="flex flex-wrap items-center gap-1">
         <IconButton
           icon={Bold}
@@ -274,6 +308,20 @@ function TextFields({
           size="sm"
           pressed={el.bold}
           onClick={() => set({ bold: !el.bold })}
+        />
+        <IconButton
+          icon={Italic}
+          label="Italic"
+          size="sm"
+          pressed={el.italic}
+          onClick={() => set({ italic: !el.italic })}
+        />
+        <IconButton
+          icon={Underline}
+          label="Underline"
+          size="sm"
+          pressed={el.underline}
+          onClick={() => set({ underline: !el.underline })}
         />
         <span className="mx-1 h-5 w-px bg-neutral-300" aria-hidden />
         <div className="flex gap-1" role="group" aria-label="Text alignment">

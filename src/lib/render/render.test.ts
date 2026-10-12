@@ -319,6 +319,54 @@ describe("renderLabel", () => {
   });
 });
 
+describe("text styles", () => {
+  const spec = () => findLabel("rect-50x30")!;
+  const base = () => ({
+    ...newText(2, 5, 46, 12),
+    text: "Label",
+    autoFit: false,
+    fontSizeMm: 8,
+  });
+
+  it("underline adds a line below the text, spanning its width", async () => {
+    const plain = await renderLabel(design(spec(), [base()]), spec(), nodeEnv);
+    const under = await renderLabel(
+      design(spec(), [{ ...base(), underline: true }]),
+      spec(),
+      nodeEnv,
+    );
+    const p = inkBounds(plain.label)!;
+    const u = inkBounds(under.label)!;
+    expect(u.y1).toBeGreaterThan(p.y1);
+    expect(blackCount(under.label)).toBeGreaterThan(blackCount(plain.label));
+    expect(u.x1 - u.x0).toBeGreaterThanOrEqual(p.x1 - p.x0 - 0.2);
+  });
+
+  it("italic changes the glyphs; old templates without the fields still parse", async () => {
+    const plain = await renderLabel(design(spec(), [base()]), spec(), nodeEnv);
+    const italic = await renderLabel(
+      design(spec(), [{ ...base(), italic: true }]),
+      spec(),
+      nodeEnv,
+    );
+    expect(
+      Buffer.from(italic.label.data).equals(Buffer.from(plain.label.data)),
+    ).toBe(false);
+
+    const legacy: Record<string, unknown> = { ...base() };
+    delete legacy.italic;
+    delete legacy.underline;
+    const parsed = designSchema.parse({
+      ...emptyDesign("rect-50x30"),
+      elements: [legacy],
+    });
+    expect(parsed.elements[0]).toMatchObject({
+      italic: false,
+      underline: false,
+    });
+  });
+});
+
 describe("renderPreview", () => {
   it("draws smooth (anti-aliased) text clipped to the printable area", async () => {
     const spec = findLabel("round-31")!;

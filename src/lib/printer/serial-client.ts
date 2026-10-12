@@ -207,8 +207,11 @@ export class B21SerialClient extends NiimbotAbstractClient {
   }
 }
 
-/** Port source for the browser: reuse a previously granted NIIMBOT port, else ask the user. */
-export function browserPortSource(): PortSource {
+/**
+ * Port source for the browser: reuse a previously granted NIIMBOT port, else ask the user. With
+ * `allowPrompt: false` (automatic reconnect, no user gesture) it only uses a granted port.
+ */
+export function browserPortSource({ allowPrompt = true } = {}): PortSource {
   return async () => {
     if (!("serial" in navigator)) {
       throw new Error(
@@ -220,6 +223,11 @@ export function browserPortSource(): PortSource {
       (p) => p.getInfo().usbVendorId === NIIMBOT_USB_VENDOR_ID,
     );
     if (granted.length === 1) return granted[0] as unknown as SerialPortLike;
+    if (!allowPrompt) {
+      // No user gesture: only a remembered port can be opened.
+      if (granted[0]) return granted[0];
+      throw new Error("No remembered printer port.");
+    }
     const port = await serial.requestPort({
       filters: [{ usbVendorId: NIIMBOT_USB_VENDOR_ID }],
     });

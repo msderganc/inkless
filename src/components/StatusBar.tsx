@@ -23,7 +23,7 @@ const STATE_DOT: Record<SessionState, string> = {
 };
 
 export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
-  const { session } = useApp();
+  const { session, connectPrinter, disconnectPrinter } = useApp();
   const status = useSessionStatus(session);
   const { state, identity, heartbeat, error, progress } = status;
   const connected =
@@ -72,7 +72,7 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
           <button
             type="button"
             className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:opacity-50"
-            onClick={() => void session.disconnect()}
+            onClick={() => void disconnectPrinter()}
             disabled={state !== "ready"}
           >
             Disconnect
@@ -81,7 +81,7 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
           <button
             type="button"
             className="rounded bg-sky-600 px-3 py-1 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
-            onClick={() => void session.connect()}
+            onClick={() => void connectPrinter()}
             disabled={state === "connecting"}
           >
             Connect printer

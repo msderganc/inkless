@@ -1,6 +1,13 @@
 "use client";
 
-import { ImagePlus, PencilRuler, Printer, Type } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ImagePlus,
+  PencilRuler,
+  Printer,
+  Type,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type BatchSpec, batchValues } from "~/lib/batch";
 import {
@@ -22,7 +29,7 @@ import {
   renderLabel,
   renderPreview,
 } from "~/lib/render/render";
-import { newTemplate, type Template } from "~/lib/store/store";
+import { type Draft, newTemplate, type Template } from "~/lib/store/store";
 import { useApp, useSessionStatus } from "./app-context";
 import { ElementPanel } from "./ElementPanel";
 import { LabelPicker } from "./LabelPicker";
@@ -36,21 +43,62 @@ const DEFAULT_LABEL = "rect-50x30";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export default function Editor() {
-  const { store, session, settings, updateSettings, overrides } = useApp();
+  const { store, session, settings, updateSettings, overrides, initialDraft } =
+    useApp();
   const status = useSessionStatus(session);
   const initialLabel =
     settings.lastLabelId && resolveLabel(settings.lastLabelId, overrides)
       ? settings.lastLabelId
       : DEFAULT_LABEL;
+  // Restore the work in progress from before the last refresh (if its label still exists).
+  const draft =
+    initialDraft && resolveLabel(initialDraft.design.labelId, overrides)
+      ? initialDraft
+      : undefined;
 
-  const [design, setDesign] = useState<Design>(() => emptyDesign(initialLabel));
+  const [design, setDesign] = useState<Design>(
+    () => draft?.design ?? emptyDesign(initialLabel),
+  );
   const [selectedId, setSelectedId] = useState<string>();
-  const [batch, setBatch] = useState<BatchSpec>({ kind: "none" });
-  const [density, setDensity] = useState(DEFAULT_DENSITY);
-  const [copies, setCopies] = useState(1);
-  const [current, setCurrent] = useState<{ id: string; name: string }>();
-  const [view, setView] = useState<"design" | "print">("design");
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [batch, setBatch] = useState<BatchSpec>(
+    () => draft?.batch ?? { kind: "none" },
+  );
+  const [density, setDensity] = useState(draft?.density ?? DEFAULT_DENSITY);
+  const [copies, setCopies] = useState(draft?.copies ?? 1);
+  const [current, setCurrent] = useState<
+    { id: string; name: string } | undefined
+  >(draft?.template);
+  const [view, setView] = useState<"design" | "print">(draft?.view ?? "design");
+  const [zoom, setZoom] = useState(draft?.zoom ?? DEFAULT_ZOOM);
+
+  // Autosave the work in progress so it survives a refresh (debounced; flushed when hidden).
+  const latestDraft = useRef<Draft | undefined>(undefined);
+  useEffect(() => {
+    latestDraft.current = {
+      design,
+      batch,
+      density,
+      copies,
+      template: current,
+      view,
+      zoom,
+      savedAt: Date.now(),
+    };
+    const t = setTimeout(() => {
+      if (latestDraft.current)
+        void store.saveDraft(latestDraft.current).catch(() => undefined);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [store, design, batch, density, copies, current, view, zoom]);
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState === "hidden" && latestDraft.current) {
+        void store.saveDraft(latestDraft.current).catch(() => undefined);
+      }
+    };
+    document.addEventListener("visibilitychange", flush);
+    return () => document.removeEventListener("visibilitychange", flush);
+  }, [store]);
   const [preview, setPreview] = useState<MonoBitmap>();
   const [smooth, setSmooth] = useState<CanvasLike>();
   const [previewError, setPreviewError] = useState<string>();
@@ -66,13 +114,28 @@ export default function Editor() {
     [design.labelId, overrides],
   );
   const selected = design.elements.find((e) => e.id === selectedId);
-  const firstValue = useMemo(() => {
+  // Batch values for stepping through the preview ([null] when not a batch or invalid).
+  const values = useMemo(() => {
     try {
-      return batchValues(batch)[0] ?? null;
+      return batchValues(batch);
     } catch {
-      return null;
+      return [null];
     }
   }, [batch]);
+  const isBatch = values.length > 1 || values[0] !== null;
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const shownIndex = Math.min(previewIndex, values.length - 1);
+  const previewValue = values[shownIndex] ?? null;
+  const step = useCallback(
+    (delta: number) =>
+      setPreviewIndex((i) =>
+        Math.max(
+          0,
+          Math.min(values.length - 1, Math.min(i, values.length - 1) + delta),
+        ),
+      ),
+    [values.length],
+  );
 
   // Re-render the preview (debounced; stale renders are discarded).
   const renderSeq = useRef(0);
@@ -88,14 +151,14 @@ export default function Editor() {
               browserEnv,
               zoom * (window.devicePixelRatio || 1),
               {
-                batchValue: firstValue,
+                batchValue: previewValue,
               },
             ).then((c) => {
               if (seq !== renderSeq.current) return;
               setSmooth(c);
             })
           : renderLabel(design, spec, browserEnv, {
-              batchValue: firstValue,
+              batchValue: previewValue,
               offsetDots: settings.offsetDots,
             }).then((r) => {
               if (seq !== renderSeq.current) return;
@@ -110,7 +173,7 @@ export default function Editor() {
         );
     }, 80);
     return () => clearTimeout(t);
-  }, [design, spec, firstValue, settings.offsetDots, view, zoom]);
+  }, [design, spec, previewValue, settings.offsetDots, view, zoom]);
 
   const updateElement = useCallback((el: DesignElement) => {
     setDesign((d) => ({
@@ -118,6 +181,18 @@ export default function Editor() {
       elements: d.elements.map((e) => (e.id === el.id ? el : e)),
     }));
   }, []);
+  // Merge into the latest state so quick successive edits (e.g. italic then underline) all stick.
+  const patchElement = useCallback(
+    (id: string, patch: Partial<DesignElement>) => {
+      setDesign((d) => ({
+        ...d,
+        elements: d.elements.map((e) =>
+          e.id === id ? ({ ...e, ...patch } as DesignElement) : e,
+        ),
+      }));
+    },
+    [],
+  );
 
   const addElement = (el: DesignElement) => {
     setDesign((d) => ({ ...d, elements: [...d.elements, el] }));
@@ -376,17 +451,46 @@ export default function Editor() {
               />
             </label>
           </div>
-          <Workspace
-            spec={spec}
-            design={design}
-            preview={preview}
-            smooth={smooth}
-            view={view}
-            selectedId={selectedId}
-            zoom={zoom}
-            onSelect={setSelectedId}
-            onChange={updateElement}
-          />
+          <div className="flex items-center gap-3">
+            {isBatch && (
+              <IconButton
+                icon={ChevronLeft}
+                label="Previous label in batch"
+                disabled={shownIndex === 0}
+                onClick={() => step(-1)}
+              />
+            )}
+            <Workspace
+              spec={spec}
+              design={design}
+              preview={preview}
+              smooth={smooth}
+              view={view}
+              selectedId={selectedId}
+              zoom={zoom}
+              onSelect={setSelectedId}
+              onChange={updateElement}
+            />
+            {isBatch && (
+              <IconButton
+                icon={ChevronRight}
+                label="Next label in batch"
+                disabled={shownIndex >= values.length - 1}
+                onClick={() => step(1)}
+              />
+            )}
+          </div>
+          {isBatch && (
+            <p className="text-sm font-medium" aria-live="polite">
+              Label {shownIndex + 1} of {values.length}
+              {previewValue !== null && (
+                <span className="font-normal text-neutral-500">
+                  {" "}
+                  · &ldquo;{previewValue}&rdquo;
+                </span>
+              )}
+            </p>
+          )}
           {previewError && (
             <p className="text-sm text-red-700">{previewError}</p>
           )}
@@ -395,8 +499,6 @@ export default function Editor() {
             {view === "design"
               ? "Design view: smooth preview. Switch to As printed to see the exact printer dots."
               : "As printed: exact 203 DPI output."}
-            {firstValue !== null &&
-              ` Showing the first batch value "${firstValue}".`}
           </p>
         </main>
 
@@ -406,6 +508,7 @@ export default function Editor() {
               element={selected}
               spec={spec}
               onChange={updateElement}
+              onPatch={patchElement}
               onDelete={removeSelected}
               onDuplicate={() =>
                 addElement({

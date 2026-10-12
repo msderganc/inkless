@@ -32,6 +32,9 @@ export const textElementSchema = z.object({
   fontSizeMm: z.number().positive().max(100),
   fontFamily: z.string().min(1).max(100),
   bold: z.boolean(),
+  // Added later: default to off so older templates and drafts still load.
+  italic: z.boolean().default(false),
+  underline: z.boolean().default(false),
   align: z.enum(["left", "center", "right"]),
   /** Shrink the font so the longest line fits the box width. */
   autoFit: z.boolean(),
@@ -92,6 +95,8 @@ export function newText(
     fontSizeMm: Math.min(5, h * 0.8),
     fontFamily: "Arial",
     bold: false,
+    italic: false,
+    underline: false,
     align: "center",
     autoFit: true,
   };

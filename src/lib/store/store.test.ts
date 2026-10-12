@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emptyDesign, newText } from "../design";
-import { DEFAULT_SETTINGS, newTemplate, Store } from "./store";
+import { openDB } from "idb";
+import { DEFAULT_SETTINGS, type Draft, newTemplate, Store } from "./store";
 
 let store: Store;
 let dbName: string;
@@ -20,6 +21,81 @@ const sample = (name = "Bins") =>
     3,
     1,
   );
+
+describe("settings migration", () => {
+  it("keeps older saved settings and defaults autoConnect to off", async () => {
+    const raw = await openDB(dbName);
+    await raw.put("settings", {
+      key: "app",
+      value: { offsetDots: 3, diagnostics: false },
+    });
+    raw.close();
+    expect(await store.getSettings()).toEqual({
+      offsetDots: 3,
+      diagnostics: false,
+      autoConnect: false,
+    });
+  });
+});
+
+describe("editor draft", () => {
+  const draft = (): Draft => ({
+    design: {
+      ...emptyDesign("round-31"),
+      elements: [newText(2, 10, 27, 10)],
+    },
+    batch: { kind: "list", items: ["A1", "B2"] },
+    density: 4,
+    copies: 2,
+    template: { id: "t1", name: "Bins" },
+    view: "print",
+    zoom: 12,
+    savedAt: 1,
+  });
+
+  it("round-trips and clears", async () => {
+    expect(await store.getDraft()).toBeUndefined();
+    const d = draft();
+    await store.saveDraft(d);
+    expect(await store.getDraft()).toEqual(d);
+    await store.clearDraft();
+    expect(await store.getDraft()).toBeUndefined();
+  });
+
+  it("rejects invalid drafts on save and ignores corrupt ones on load", async () => {
+    await expect(store.saveDraft({ ...draft(), density: 9 })).rejects.toThrow();
+    const raw = await openDB(dbName);
+    await raw.put("drafts", { key: "editor", value: { design: "garbage" } });
+    raw.close();
+    expect(await store.getDraft()).toBeUndefined();
+  });
+
+  it("upgrades a version 1 database without losing templates", async () => {
+    const name = `v1-${crypto.randomUUID()}`;
+    const v1 = await openDB(name, 1, {
+      upgrade(db) {
+        const t = db.createObjectStore("templates", { keyPath: "id" });
+        t.createIndex("updatedAt", "updatedAt");
+        db.createObjectStore("labelMap", { keyPath: "barcode" });
+        db.createObjectStore("overrides", { keyPath: "labelId" });
+        db.createObjectStore("settings", { keyPath: "key" });
+      },
+    });
+    await v1.put("templates", sample("Kept"));
+    v1.close();
+
+    const upgraded = await Store.open(name);
+    try {
+      expect((await upgraded.listTemplates()).map((t) => t.name)).toEqual([
+        "Kept",
+      ]);
+      await upgraded.saveDraft(draft());
+      expect((await upgraded.getDraft())?.copies).toBe(2);
+    } finally {
+      upgraded.close();
+    }
+  });
+});
 
 describe("Store", () => {
   it("saves, lists newest first, and deletes templates", async () => {

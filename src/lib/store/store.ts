@@ -35,9 +35,15 @@ export const settingsSchema = z.object({
   offsetDots: z.number().int().min(-16).max(16),
   lastLabelId: z.string().optional(),
   diagnostics: z.boolean(),
+  /** Reconnect to the remembered printer on load and when it is plugged in. */
+  autoConnect: z.boolean().default(false),
 });
 export type Settings = z.infer<typeof settingsSchema>;
-export const DEFAULT_SETTINGS: Settings = { offsetDots: 0, diagnostics: false };
+export const DEFAULT_SETTINGS: Settings = {
+  offsetDots: 0,
+  diagnostics: false,
+  autoConnect: false,
+};
 
 export const EXPORT_APP = "label-printer";
 export const EXPORT_SCHEMA = 1;
@@ -62,22 +68,42 @@ interface LabelDb extends DBSchema {
     value: { labelId: string; override: z.infer<typeof overrideSchema> };
   };
   settings: { key: string; value: { key: string; value: Settings } };
+  /** The editor's unsaved working state, restored on refresh (added in DB version 2). */
+  drafts: { key: string; value: { key: string; value: Draft } };
 }
 
+/** Editor working state that survives a page refresh. */
+export const draftSchema = z.object({
+  design: designSchema,
+  batch: batchSpecSchema,
+  density: z.number().int().min(1).max(5),
+  copies: z.number().int().min(1).max(100),
+  /** Template the draft was loaded from or last saved as. */
+  template: z.object({ id: z.string(), name: z.string() }).optional(),
+  view: z.enum(["design", "print"]),
+  zoom: z.number().min(1).max(40),
+  savedAt: z.number().int(),
+});
+export type Draft = z.infer<typeof draftSchema>;
+
 export const DB_NAME = "label-printer";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export class Store {
   private constructor(private readonly db: IDBPDatabase<LabelDb>) {}
 
   static async open(name = DB_NAME): Promise<Store> {
     const db = await openDB<LabelDb>(name, DB_VERSION, {
-      upgrade(db) {
-        const t = db.createObjectStore("templates", { keyPath: "id" });
-        t.createIndex("updatedAt", "updatedAt");
-        db.createObjectStore("labelMap", { keyPath: "barcode" });
-        db.createObjectStore("overrides", { keyPath: "labelId" });
-        db.createObjectStore("settings", { keyPath: "key" });
+      upgrade(db, oldVersion) {
+        // Additive migrations only, so existing templates and settings are kept.
+        if (oldVersion < 1) {
+          const t = db.createObjectStore("templates", { keyPath: "id" });
+          t.createIndex("updatedAt", "updatedAt");
+          db.createObjectStore("labelMap", { keyPath: "barcode" });
+          db.createObjectStore("overrides", { keyPath: "labelId" });
+          db.createObjectStore("settings", { keyPath: "key" });
+        }
+        if (oldVersion < 2) db.createObjectStore("drafts", { keyPath: "key" });
       },
     });
     return new Store(db);
@@ -85,6 +111,24 @@ export class Store {
 
   close() {
     this.db.close();
+  }
+
+  /** The saved editor draft, or undefined if none or it no longer validates. */
+  async getDraft(): Promise<Draft | undefined> {
+    const row = await this.db.get("drafts", "editor");
+    const parsed = draftSchema.safeParse(row?.value);
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  async saveDraft(draft: Draft): Promise<void> {
+    await this.db.put("drafts", {
+      key: "editor",
+      value: draftSchema.parse(draft),
+    });
+  }
+
+  async clearDraft(): Promise<void> {
+    await this.db.delete("drafts", "editor");
   }
 
   async listTemplates(): Promise<Template[]> {
@@ -140,7 +184,7 @@ export class Store {
     return parsed.success ? parsed.data : DEFAULT_SETTINGS;
   }
 
-  async saveSettings(value: Settings): Promise<void> {
+  async saveSettings(value: z.input<typeof settingsSchema>): Promise<void> {
     await this.db.put("settings", {
       key: "app",
       value: settingsSchema.parse(value),

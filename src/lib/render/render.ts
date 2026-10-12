@@ -119,8 +119,8 @@ function withElementTransform(
   ctx.restore();
 }
 
-const fontString = (el: TextElement, px: number) =>
-  `${el.bold ? "bold " : ""}${Math.max(1, Math.round(px))}px ${JSON.stringify(el.fontFamily)}, sans-serif`;
+export const fontString = (el: TextElement, px: number) =>
+  `${el.italic ? "italic " : ""}${el.bold ? "bold " : ""}${Math.max(1, Math.round(px))}px ${JSON.stringify(el.fontFamily)}, sans-serif`;
 
 export const LINE_HEIGHT = 1.15;
 
@@ -159,7 +159,22 @@ function drawText(
     const lineH = px * LINE_HEIGHT;
     const top = h / 2 - (lines.length * lineH) / 2 + lineH / 2;
     const x = el.align === "left" ? 0 : el.align === "right" ? w : w / 2;
-    lines.forEach((line, i) => ctx.fillText(line, x, top + i * lineH));
+    lines.forEach((line, i) => {
+      const y = top + i * lineH;
+      ctx.fillText(line, x, y);
+      if (el.underline && line.length > 0) {
+        // Canvas has no underline; draw it under the glyphs, at least one printer dot thick.
+        const width = ctx.measureText(line).width;
+        const start =
+          el.align === "left"
+            ? x
+            : el.align === "right"
+              ? x - width
+              : x - width / 2;
+        const thickness = Math.max(s / 8, px * 0.07);
+        ctx.fillRect(start, y + px * 0.42, width, thickness);
+      }
+    });
   });
 }
 

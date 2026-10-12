@@ -70,8 +70,16 @@ export type JobOutcome =
 /** Exclusive ownership of the printer across tabs (V8). Returns a release function, or null if busy. */
 export type LockProvider = () => Promise<(() => void) | null>;
 
+export interface ConnectOptions {
+  /**
+   * Automatic reconnect (page load, printer plugged back in): never prompt the user to pick a
+   * port, and fall back quietly to "disconnected" instead of showing an error.
+   */
+  auto?: boolean;
+}
+
 export interface SessionDeps {
-  createClient(): NiimbotAbstractClient;
+  createClient(options: ConnectOptions): NiimbotAbstractClient;
   lock?: LockProvider;
   newPrintTask?(
     client: NiimbotAbstractClient,
@@ -231,26 +239,33 @@ export class PrinterSession {
   }
 
   /** Connect to the printer. Concurrent calls share one attempt; disconnect() cancels it. */
-  connect(): Promise<void> {
+  connect(options: ConnectOptions = {}): Promise<void> {
     if (this.connecting) return this.connecting;
     if (this.status.state !== "disconnected" && this.status.state !== "error")
       return Promise.resolve();
     const gen = ++this.attempt;
-    this.connecting = this.doConnect(gen).finally(() => {
+    this.connecting = this.doConnect(gen, options).finally(() => {
       this.connecting = undefined;
     });
     return this.connecting;
   }
 
-  private async doConnect(gen: number): Promise<void> {
+  private async doConnect(gen: number, options: ConnectOptions): Promise<void> {
     const stale = () => gen !== this.attempt;
+    // Automatic attempts fail quietly: the user did not ask, so there is nothing to report.
+    const fail = (error: string) =>
+      this.set(
+        options.auto
+          ? { state: "disconnected", error: undefined }
+          : { state: "error", error },
+      );
     this.set({ state: "connecting", error: undefined, progress: undefined });
 
     let release: (() => void) | null;
     try {
       release = await (this.deps.lock ?? (async () => () => undefined))();
     } catch (e) {
-      if (!stale()) this.set({ state: "error", error: describeError(e) });
+      if (!stale()) fail(describeError(e));
       return;
     }
     if (stale()) {
@@ -258,15 +273,12 @@ export class PrinterSession {
       return;
     }
     if (!release) {
-      this.set({
-        state: "error",
-        error: "The printer is already in use in another tab or window.",
-      });
+      fail("The printer is already in use in another tab or window.");
       return;
     }
     this.releaseLock = release;
 
-    const client = this.deps.createClient();
+    const client = this.deps.createClient(options);
     this.client = client;
     try {
       client.setHeartbeatAutoStart(false);
@@ -308,7 +320,7 @@ export class PrinterSession {
     } catch (e) {
       if (stale()) return;
       await this.teardown();
-      if (!stale()) this.set({ state: "error", error: describeError(e) });
+      if (!stale()) fail(describeError(e));
     }
   }
 

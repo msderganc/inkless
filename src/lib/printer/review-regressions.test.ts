@@ -124,6 +124,53 @@ describe("connect/disconnect races", () => {
   });
 });
 
+describe("automatic reconnect", () => {
+  it("connects normally when the remembered printer is there", async () => {
+    const s = makeSession([new FakeSerialPort(table)]);
+    await s.connect({ auto: true });
+    expect(s.getStatus().state).toBe("ready");
+  });
+
+  it("fails quietly (no error shown) when the printer does not answer", async () => {
+    const port = new FakeSerialPort(table);
+    port.silent = true;
+    const s = makeSession([port]);
+    await s.connect({ auto: true });
+    expect(s.getStatus()).toMatchObject({
+      state: "disconnected",
+      error: undefined,
+    });
+    expect(port.isOpen).toBe(false);
+  }, 20_000);
+
+  it("fails quietly when another tab holds the printer", async () => {
+    const s = makeSession([new FakeSerialPort(table)], {
+      lock: async () => null,
+    });
+    await s.connect({ auto: true });
+    expect(s.getStatus()).toMatchObject({
+      state: "disconnected",
+      error: undefined,
+    });
+  });
+
+  it("passes the auto flag to the client factory (no port picker without a gesture)", async () => {
+    const seen: unknown[] = [];
+    const port = new FakeSerialPort(table);
+    const s = new PrinterSession({
+      createClient: (o) => {
+        seen.push(o);
+        const c = new B21SerialClient(async () => port);
+        c.setPacketInterval(0);
+        return c;
+      },
+    });
+    sessions.push(s);
+    await s.connect({ auto: true });
+    expect(seen).toEqual([{ auto: true }]);
+  });
+});
+
 describe("jobs and connection changes", () => {
   it("a stalled feed fails the label after the deadline, sends printEnd and returns to ready", async () => {
     const port = new SimulatedB21S();
