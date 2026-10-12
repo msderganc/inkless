@@ -399,6 +399,92 @@ describe("generateIcons — ChatGPT plan sign-in", () => {
     expect(Array.isArray(calls[0]!.body.input)).toBe(true);
   });
 
+  it("uses the streamed text when the final event omits the output", async () => {
+    const base = {
+      id: "resp_2",
+      object: "response",
+      created_at: 0,
+      model: "gpt-6.1-sol",
+      output: [],
+    };
+    const result = await generateIcons(
+      {
+        provider: "openai",
+        apiKey: "t",
+        model: "gpt-6.1-sol",
+        chatgptPlan: true,
+        fetch: sseFetch(
+          [
+            {
+              type: "response.created",
+              sequence_number: 0,
+              response: { ...base, status: "in_progress" },
+            },
+            {
+              type: "response.output_item.added",
+              sequence_number: 1,
+              output_index: 0,
+              item: {
+                type: "message",
+                id: "m1",
+                role: "assistant",
+                status: "in_progress",
+                content: [],
+              },
+            },
+            {
+              type: "response.content_part.added",
+              sequence_number: 1,
+              item_id: "m1",
+              output_index: 0,
+              content_index: 0,
+              part: { type: "output_text", text: "", annotations: [] },
+            },
+            {
+              type: "response.output_text.delta",
+              sequence_number: 1,
+              item_id: "m1",
+              output_index: 0,
+              content_index: 0,
+              delta: SVG_A.slice(0, 20),
+              logprobs: [],
+            },
+            {
+              type: "response.output_text.delta",
+              sequence_number: 2,
+              item_id: "m1",
+              output_index: 0,
+              content_index: 0,
+              delta: SVG_A.slice(20),
+              logprobs: [],
+            },
+            {
+              type: "response.completed",
+              sequence_number: 3,
+              response: { ...base, status: "completed" },
+            },
+          ],
+          [],
+        ),
+      },
+      "a cat",
+    );
+    expect(result.items).toHaveLength(1);
+  });
+
+  it("includes the model's text when it has no usable icon", async () => {
+    const err = await generateIcons(
+      {
+        provider: "anthropic",
+        apiKey: "k",
+        model: "claude-opus-5-5",
+        fetch: fakeFetch(200, anthropicMessage("Sorry, here is a cat: 🐱"), []),
+      },
+      "a cat",
+    ).catch((e: unknown) => e);
+    expect((err as AiError).modelText).toContain("here is a cat");
+  });
+
   it("refuses image models on a plan sign-in", async () => {
     await expect(
       generateImageIcons(

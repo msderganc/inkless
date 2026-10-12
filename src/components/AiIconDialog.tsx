@@ -1,6 +1,13 @@
 "use client";
 
-import { ChartColumn, LoaderCircle, Settings, Sparkles } from "lucide-react";
+import {
+  Bookmark,
+  BookmarkCheck,
+  ChartColumn,
+  LoaderCircle,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   ChatgptAuthError,
@@ -120,7 +127,11 @@ export function AiIconDialog({
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [modelText, setModelText] = useState<string>();
   const [results, setResults] = useState<AiResult[]>([]);
+  /** Indexes of results saved to My icons (reset with each generation). */
+  const [savedIdx, setSavedIdx] = useState<number[]>([]);
+  const [resultsPrompt, setResultsPrompt] = useState("");
   const [sizeMm, setSizeMm] = useState(15);
   const abort = useRef<AbortController | undefined>(undefined);
 
@@ -161,10 +172,25 @@ export function AiIconDialog({
     }
   };
 
+  const save = async (result: AiResult, i: number) => {
+    try {
+      await store.saveIcon({
+        id: newId(),
+        name: (resultsPrompt || "AI icon").slice(0, 80),
+        createdAt: Date.now(),
+        ...result,
+      });
+      setSavedIdx((s) => [...s, i]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const generate = async () => {
     if (!ai) return;
     setBusy(true);
     setError(undefined);
+    setModelText(undefined);
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
@@ -190,7 +216,11 @@ export function AiIconDialog({
       const out = result.items.map((data): AiResult =>
         imageMode ? { type: "png", data } : { type: "svg", data },
       );
-      if (!ctl.signal.aborted) setResults(out);
+      if (!ctl.signal.aborted) {
+        setResults(out);
+        setSavedIdx([]);
+        setResultsPrompt(prompt.trim());
+      }
     } catch (e) {
       // A refused or unusable answer was still billed: record it.
       if (e instanceof Error && "usage" in e && e.usage)
@@ -200,6 +230,14 @@ export function AiIconDialog({
       }
       if (!ctl.signal.aborted)
         setError(e instanceof Error ? e.message : String(e));
+      // The generate module is loaded lazily, so check the shape rather than the class.
+      const text =
+        e instanceof Error &&
+        "modelText" in e &&
+        typeof e.modelText === "string"
+          ? e.modelText
+          : undefined;
+      if (!ctl.signal.aborted && text?.trim()) setModelText(text);
     } finally {
       if (!ctl.signal.aborted) setBusy(false);
     }
@@ -297,6 +335,16 @@ export function AiIconDialog({
             {error}
           </p>
         )}
+        {modelText && (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-neutral-600">
+              Show the model&apos;s answer
+            </summary>
+            <pre className="mt-1 max-h-48 overflow-auto rounded border border-neutral-200 p-2 whitespace-pre-wrap">
+              {modelText}
+            </pre>
+          </details>
+        )}
 
         {results.length > 0 && (
           <>
@@ -323,6 +371,20 @@ export function AiIconDialog({
                     <PrintPreview result={result} sizeMm={sizeMm} />
                     <span className="text-xs text-neutral-600">Use this</span>
                   </button>
+                  <div className="mt-1 flex justify-center">
+                    <IconButton
+                      icon={savedIdx.includes(i) ? BookmarkCheck : Bookmark}
+                      label={
+                        savedIdx.includes(i)
+                          ? "Saved to My icons"
+                          : `Save icon ${i + 1} to My icons`
+                      }
+                      size="sm"
+                      pressed={savedIdx.includes(i)}
+                      disabled={savedIdx.includes(i)}
+                      onClick={() => void save(result, i)}
+                    />
+                  </div>
                 </li>
               ))}
             </ul>

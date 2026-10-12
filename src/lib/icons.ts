@@ -44,18 +44,84 @@ export interface LibraryIcon {
   key: string;
   name: string;
   node: IconNode;
+  /** Lucide categories, e.g. "animals", "food-beverage". */
+  categories: string[];
+  /** Extra search words, e.g. "kitten feline" for cat. */
+  tags: string[];
+  /** Old Lucide name for the same drawing as another icon; hidden in the library list. */
+  alias?: boolean;
 }
 
-let cache: Promise<LibraryIcon[]> | undefined;
+interface IconMeta {
+  categories: string[];
+  icons: Record<string, { c: number[]; t: string }>;
+}
 
-/** Lazily loads all Lucide icons (kept out of the main bundle). */
-export function loadIconLibrary(): Promise<LibraryIcon[]> {
-  cache ??= import("lucide").then(({ icons }) =>
-    Object.entries(icons as unknown as Record<string, IconNode>)
-      .map(([key, node]) => ({ key, name: iconDisplayName(key), node }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+const normKey = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** "food-beverage" → "Food & beverage". */
+export function categoryLabel(c: string): string {
+  const s = c.replace("food-beverage", "food & beverage").replace(/-/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+let cache: Promise<{ icons: LibraryIcon[]; categories: string[] }> | undefined;
+
+/** Lazily loads all Lucide icons with their categories and tags (kept out of the main bundle). */
+export function loadIconCatalog(): Promise<{
+  icons: LibraryIcon[];
+  categories: string[];
+}> {
+  cache ??= Promise.all([import("lucide"), import("./icon-meta.json")]).then(
+    ([{ icons }, metaModule]) => {
+      const meta = (metaModule as { default: IconMeta }).default;
+      const entries = Object.entries(
+        icons as unknown as Record<string, IconNode>,
+      );
+      // Metadata per drawing, so old alias names inherit their current icon's categories.
+      const byDrawing = new Map<string, IconMeta["icons"][string]>();
+      for (const [key, node] of entries) {
+        const m = meta.icons[normKey(key)];
+        if (m) byDrawing.set(JSON.stringify(node), m);
+      }
+      const list = entries
+        .map(([key, node]): LibraryIcon => {
+          const own = meta.icons[normKey(key)];
+          const m = own ?? byDrawing.get(JSON.stringify(node));
+          return {
+            key,
+            name: iconDisplayName(key),
+            node,
+            categories: (m?.c ?? [])
+              .map((i) => meta.categories[i])
+              .filter((c): c is string => !!c),
+            tags: m?.t ? m.t.split("|") : [],
+            ...(own ? {} : { alias: true }),
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { icons: list, categories: meta.categories };
+    },
   );
   return cache;
+}
+
+/** Lazily loads all Lucide icons (kept out of the main bundle). */
+export async function loadIconLibrary(): Promise<LibraryIcon[]> {
+  return (await loadIconCatalog()).icons;
+}
+
+/** Icons in a category and/or starting with a letter ("#" = digits). */
+export function filterIcons(
+  all: LibraryIcon[],
+  { category, letter }: { category?: string; letter?: string },
+): LibraryIcon[] {
+  return all.filter(
+    (i) =>
+      (!category || i.categories.includes(category)) &&
+      (!letter ||
+        (letter === "#" ? /^[0-9]/.test(i.name) : i.name.startsWith(letter))),
+  );
 }
 
 /** Ranked search: whole-word/prefix matches first, then substring matches. */
@@ -69,11 +135,19 @@ export function searchIcons(
   const terms = q.split(/\s+/);
   const scored: { icon: LibraryIcon; score: number }[] = [];
   for (const icon of all) {
-    if (!terms.every((t) => icon.name.includes(t))) continue;
+    const inName = terms.every((t) => icon.name.includes(t));
+    // Tags widen the search ("kitten" finds cat) but rank below name matches.
+    const inTags =
+      !inName &&
+      terms.every(
+        (t) => icon.name.includes(t) || icon.tags.some((g) => g.includes(t)),
+      );
+    if (!inName && !inTags) continue;
     const words = icon.name.split(" ");
     const score =
       (icon.name === q ? 0 : 10) +
       (words.some((w) => w.startsWith(terms[0]!)) ? 0 : 5) +
+      (inTags ? 20 : 0) +
       icon.name.length / 100;
     scored.push({ icon, score });
   }

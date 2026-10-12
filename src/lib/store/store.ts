@@ -10,7 +10,13 @@ import {
 import { DEFAULT_MODELS, DEFAULT_OPENAI_IMAGE_MODEL } from "../ai/models";
 import { type UsageEntry } from "../ai/pricing";
 import { batchSpecSchema, type BatchSpec } from "../batch";
-import { designSchema, type Design } from "../design";
+import {
+  designSchema,
+  type Design,
+  MAX_IMAGE_SRC_CHARS,
+  MAX_SVG_CHARS,
+} from "../design";
+import { sanitizeSvg } from "../svg";
 
 /** Saved label template. */
 export const templateSchema = z.object({
@@ -57,6 +63,31 @@ export const DEFAULT_SETTINGS: Settings = {
 export const EXPORT_APP = "label-printer";
 export const EXPORT_SCHEMA = 1;
 
+/** Saved "My icons" limit. */
+export const MAX_SAVED_ICONS = 500;
+
+/** An icon the user saved for reuse (AI-generated SVG or image-model PNG). */
+export const savedIconSchema = z.discriminatedUnion("type", [
+  z.object({
+    id: z.string().min(1).max(64),
+    name: z.string().min(1).max(80),
+    createdAt: z.number(),
+    type: z.literal("svg"),
+    data: z.string().min(1).max(MAX_SVG_CHARS),
+  }),
+  z.object({
+    id: z.string().min(1).max(64),
+    name: z.string().min(1).max(80),
+    createdAt: z.number(),
+    type: z.literal("png"),
+    data: z
+      .string()
+      .max(MAX_IMAGE_SRC_CHARS)
+      .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/),
+  }),
+]);
+export type SavedIcon = z.infer<typeof savedIconSchema>;
+
 export const backupSchema = z.object({
   app: z.literal(EXPORT_APP),
   schema: z.literal(EXPORT_SCHEMA),
@@ -65,6 +96,8 @@ export const backupSchema = z.object({
   labelMap: z.record(z.string(), z.string()),
   overrides: z.record(z.string(), overrideSchema),
   settings: settingsSchema,
+  /** Saved icons (added later; older backups have none). */
+  icons: z.array(savedIconSchema).max(MAX_SAVED_ICONS).default([]),
 });
 export type Backup = z.infer<typeof backupSchema>;
 
@@ -84,6 +117,8 @@ interface LabelDb extends DBSchema {
   secrets: { key: string; value: { key: string; value: unknown } };
   /** AI usage log (DB version 4). Local only; never exported. */
   usage: { key: number; value: UsageEntry; indexes: { at: number } };
+  /** Saved "My icons" (DB version 5). Included in backups. */
+  icons: { key: string; value: SavedIcon; indexes: { createdAt: number } };
 }
 
 export const aiSettingsSchema = z.object({
@@ -130,7 +165,7 @@ export const draftSchema = z.object({
 export type Draft = z.infer<typeof draftSchema>;
 
 export const DB_NAME = "label-printer";
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 /** Usage log entries kept (oldest are pruned). */
 export const USAGE_LIMIT = 2000;
 
@@ -163,6 +198,10 @@ export class Store {
           const u = db.createObjectStore("usage", { autoIncrement: true });
           u.createIndex("at", "at");
         }
+        if (oldVersion < 5) {
+          const i = db.createObjectStore("icons", { keyPath: "id" });
+          i.createIndex("createdAt", "createdAt");
+        }
       },
     });
     opened.db = db;
@@ -185,6 +224,37 @@ export class Store {
       key: "editor",
       value: draftSchema.parse(draft),
     });
+  }
+
+  /** Saved icons, newest first. Invalid rows are skipped. */
+  async listIcons(): Promise<SavedIcon[]> {
+    const rows = await this.db.getAllFromIndex("icons", "createdAt");
+    return rows.reverse().flatMap((r) => {
+      const p = savedIconSchema.safeParse(r);
+      return p.success ? [p.data] : [];
+    });
+  }
+
+  /** Save an icon (SVGs are re-sanitised). Throws when the collection is full. */
+  async saveIcon(icon: SavedIcon): Promise<void> {
+    const clean = savedIconSchema.parse(
+      icon.type === "svg" ? { ...icon, data: sanitizeSvg(icon.data) } : icon,
+    );
+    const tx = this.db.transaction("icons", "readwrite");
+    const exists = await tx.store.get(clean.id);
+    if (!exists && (await tx.store.count()) >= MAX_SAVED_ICONS) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw new Error(
+        `My icons is full (${MAX_SAVED_ICONS}). Delete some to save more.`,
+      );
+    }
+    await tx.store.put(clean);
+    await tx.done;
+  }
+
+  async deleteIcon(id: string): Promise<void> {
+    await this.db.delete("icons", id);
   }
 
   /** "Sign in with ChatGPT" tokens (created with a fresh host id if none yet). */
@@ -338,6 +408,7 @@ export class Store {
       ),
       overrides: await this.getOverrides(),
       settings: await this.getSettings(),
+      icons: await this.listIcons(),
     };
   }
 
@@ -347,8 +418,12 @@ export class Store {
    */
   async importBackup(raw: unknown): Promise<{ templates: number }> {
     const backup = backupSchema.parse(raw);
+    // Saved SVGs come from a file: sanitise them again before storing.
+    const icons = backup.icons.map((i) =>
+      i.type === "svg" ? { ...i, data: sanitizeSvg(i.data) } : i,
+    );
     const tx = this.db.transaction(
-      ["templates", "labelMap", "overrides", "settings"],
+      ["templates", "labelMap", "overrides", "settings", "icons"],
       "readwrite",
     );
     await Promise.all([
@@ -360,6 +435,7 @@ export class Store {
         tx.objectStore("overrides").put({ labelId, override }),
       ),
       tx.objectStore("settings").put({ key: "app", value: backup.settings }),
+      ...icons.map((i) => tx.objectStore("icons").put(i)),
       tx.done,
     ]);
     return { templates: backup.templates.length };

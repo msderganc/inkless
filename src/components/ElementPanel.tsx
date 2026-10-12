@@ -2,6 +2,7 @@
 
 import {
   AlignCenter,
+  Bookmark,
   AlignHorizontalJustifyCenter,
   AlignHorizontalJustifyEnd,
   AlignHorizontalJustifyStart,
@@ -27,6 +28,7 @@ import {
   type ImageElement,
   type Rotation,
   type ShapeElement,
+  newId,
   type TextElement,
 } from "~/lib/design";
 import { loadIconLibrary, lucideToSvg } from "~/lib/icons";
@@ -37,6 +39,7 @@ import {
   mergeFontLists,
   WINDOWS_FONTS,
 } from "~/lib/fonts";
+import { useApp } from "./app-context";
 import { IconButton } from "./IconButton";
 
 /** Installed fonts, once the user has allowed listing them (kept for the session). */
@@ -454,15 +457,44 @@ function IconFields({
   el: IconElement;
   set: (p: Partial<IconElement>) => void;
 }) {
+  const { store } = useApp();
+  const [saved, setSaved] = useState<string>();
   const changeWeight = async (weight: number) => {
     const icon = (await loadIconLibrary()).find((i) => i.key === el.libraryKey);
     if (icon) set({ weight, svg: lucideToSvg(icon.node, weight) });
+  };
+  const saveToMine = async () => {
+    try {
+      await store.saveIcon({
+        id: newId(),
+        name: el.name.slice(0, 80) || "AI icon",
+        createdAt: Date.now(),
+        type: "svg",
+        data: el.svg,
+      });
+      setSaved("Saved to My icons.");
+    } catch (e) {
+      setSaved(e instanceof Error ? e.message : String(e));
+    }
   };
   return (
     <div className="space-y-2 text-sm">
       <p className="text-xs text-neutral-500">
         {el.source === "ai" ? "AI icon" : "Library icon"}: {el.name}
       </p>
+      {el.source === "ai" && (
+        <div className="flex items-center gap-2">
+          <IconButton
+            icon={Bookmark}
+            label="Save to My icons"
+            size="sm"
+            onClick={() => void saveToMine()}
+          />
+          <span className="text-xs text-neutral-600">
+            {saved ?? "Save to My icons"}
+          </span>
+        </div>
+      )}
       {el.source === "library" && el.libraryKey && (
         <label className="flex items-center gap-2">
           Line weight

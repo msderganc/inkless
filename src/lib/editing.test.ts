@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { alignGroup } from "./align";
 import { findLabel } from "./catalogue";
 import { designUsesBatch, emptyDesign, newText } from "./design";
-import { iconDisplayName, lucideToSvg, searchIcons } from "./icons";
+import {
+  categoryLabel,
+  filterIcons,
+  iconDisplayName,
+  loadIconCatalog,
+  lucideToSvg,
+  searchIcons,
+} from "./icons";
 import { boxLines, snapMove, unionBox } from "./snap";
 
 describe("snapMove", () => {
@@ -64,7 +71,13 @@ describe("icon library helpers", () => {
     expect(iconDisplayName("ShoppingCart")).toBe("shopping cart");
     expect(iconDisplayName("Volume2")).toBe("volume2");
     const all = ["Heart", "HeartCrack", "Cat", "ShoppingCart", "Cart"].map(
-      (k) => ({ key: k, name: iconDisplayName(k), node: [] }),
+      (k) => ({
+        key: k,
+        name: iconDisplayName(k),
+        node: [],
+        categories: k === "Cat" ? ["animals"] : ["shopping"],
+        tags: k === "Cat" ? ["kitten", "feline"] : [],
+      }),
     );
     expect(searchIcons(all, "heart").map((i) => i.key)).toEqual([
       "Heart",
@@ -72,6 +85,30 @@ describe("icon library helpers", () => {
     ]);
     expect(searchIcons(all, "cart").map((i) => i.key)[0]).toBe("Cart");
     expect(searchIcons(all, "")).toHaveLength(5);
+    expect(searchIcons(all, "kitten").map((i) => i.key)).toEqual(["Cat"]);
+    expect(filterIcons(all, { category: "animals" }).map((i) => i.key)).toEqual(
+      ["Cat"],
+    );
+    expect(filterIcons(all, { letter: "h" })).toHaveLength(2);
+    expect(
+      filterIcons(all, { category: "shopping", letter: "c" }).map((i) => i.key),
+    ).toEqual(["Cart"]);
+  });
+
+  it("loads the real catalogue with categories and tags", async () => {
+    const { icons, categories } = await loadIconCatalog();
+    expect(categories).toContain("animals");
+    const cat = icons.find((i) => i.key === "Cat");
+    expect(cat?.categories).toContain("animals");
+    expect(cat?.tags).toContain("kitten");
+    // Nearly every icon has a category; old alias names inherit theirs.
+    const missing = icons.filter((i) => i.categories.length === 0).length;
+    expect(missing / icons.length).toBeLessThan(0.02);
+    const alias = icons.find((i) => i.key === "AlertCircle");
+    expect(alias?.alias).toBe(true);
+    expect(alias?.categories.length).toBeGreaterThan(0);
+    expect(icons.find((i) => i.key === "CircleAlert")?.alias).toBeUndefined();
+    expect(categoryLabel("food-beverage")).toBe("Food & beverage");
   });
 });
 

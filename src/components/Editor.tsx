@@ -45,7 +45,7 @@ import {
   renderPreview,
 } from "~/lib/render/render";
 import { type Draft, newTemplate, type Template } from "~/lib/store/store";
-import { AiIconDialog } from "./AiIconDialog";
+import { type AiResult, AiIconDialog } from "./AiIconDialog";
 import { AiSettingsDialog } from "./AiSettingsDialog";
 import { UsageDialog } from "./UsageDialog";
 import { useApp, useSessionStatus } from "./app-context";
@@ -310,6 +310,30 @@ export default function Editor() {
       ...newIcon(svg, name, source, b.x, b.y, Math.min(b.w, b.h)),
       libraryKey,
       weight,
+    });
+    setDialog(undefined);
+  };
+
+  /** An AI result or saved icon: SVG → icon element; PNG → 1-bit thresholded image. */
+  const addAiResult = (result: AiResult, name: string) => {
+    if (result.type === "svg") {
+      addIcon(result.data, name, "ai");
+      return;
+    }
+    const size = Math.min(spec.widthMm, spec.heightMm) * 0.6;
+    const b = centredBox(size, size);
+    addElement({
+      id: newId(),
+      kind: "image",
+      x: b.x,
+      y: b.y,
+      w: Math.min(b.w, b.h),
+      h: Math.min(b.w, b.h),
+      rotation: 0,
+      src: result.data,
+      dither: false,
+      threshold: 128,
+      invert: false,
     });
     setDialog(undefined);
   };
@@ -831,34 +855,13 @@ export default function Editor() {
           onPick={(svg, name, key, weight) =>
             addIcon(svg, name, "library", key, weight)
           }
+          onPickSaved={(icon) => addAiResult(icon, icon.name)}
         />
       )}
       {dialog === "ai" && (
         <AiIconDialog
           onClose={() => setDialog(undefined)}
-          onPick={(result, name) => {
-            if (result.type === "svg") {
-              addIcon(result.data, name, "ai");
-              return;
-            }
-            // Image-model picture: an image element thresholded to 1-bit.
-            const size = Math.min(spec.widthMm, spec.heightMm) * 0.6;
-            const b = centredBox(size, size);
-            addElement({
-              id: newId(),
-              kind: "image",
-              x: b.x,
-              y: b.y,
-              w: Math.min(b.w, b.h),
-              h: Math.min(b.w, b.h),
-              rotation: 0,
-              src: result.data,
-              dither: false,
-              threshold: 128,
-              invert: false,
-            });
-            setDialog(undefined);
-          }}
+          onPick={addAiResult}
           onOpenSettings={() => setDialog("ai-settings")}
           onOpenUsage={() => setDialog("usage")}
         />

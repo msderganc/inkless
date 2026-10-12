@@ -18,7 +18,8 @@ Built with the T3 stack (Next.js static export, TypeScript, Tailwind). tRPC, a d
 - Remembers which label is loaded for each RFID roll barcode.
 - Diagnostics page: printer and roll info, a test pattern, horizontal calibration, measured-geometry overrides, and an opt-in packet log (last 500 packets).
 - Curved text along the top or bottom of round labels. Shapes: rectangle, ellipse, line, and a border that follows the label outline (single or double).
-- Offline icon library of about 2,100 Lucide icons, with adjustable line weight.
+- Offline icon library of about 1,900 Lucide icons, with adjustable line weight, category and A-Z filters, and search by name or tag ("kitten" finds cat). Category and tag data live in `src/lib/icon-meta.json`; refresh it after upgrading `lucide` with `node scripts/fetch-icon-meta.mjs`.
+- My icons: save AI icons (bookmark button under each result, or Save to My icons on a selected AI icon) and reuse them from the icon library. Saved icons are included in backups.
 - AI icon generator using Anthropic Claude or OpenAI with your own API key. Icons are generated as bold black-and-white SVG suited to 203 DPI and previewed exactly as they will print. Keys stay in the browser and are never included in backups.
 - Sign in with ChatGPT (OpenAI, Pay with "My ChatGPT plan") bills icon generation to your ChatGPT plan instead of an API key. Sign-in needs the local server running (`npm run serve`); it listens on 127.0.0.1:1455 only to forward OpenAI's sign-in redirect to the app. Image models need an API key.
 - AI usage and cost: the chart button in the AI icon generator shows estimated Anthropic spend (this month and all time) from each response's token counts and Anthropic list prices, plus recent generations. The Anthropic Console is the authoritative bill. The log stays in the browser and isn't backed up.

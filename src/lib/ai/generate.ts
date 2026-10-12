@@ -64,9 +64,12 @@ Make the ${ICON_COUNT} icons distinct: for example a solid silhouette, a thick o
 export class AiError extends Error {
   /** Set when the request was billed even though no usable icon came back. */
   usage?: UsageEntry;
-  constructor(message: string, usage?: UsageEntry) {
+  /** What the model actually said, when it couldn't be used (shown to help diagnose). */
+  modelText?: string;
+  constructor(message: string, usage?: UsageEntry, modelText?: string) {
     super(message);
     this.usage = usage;
+    this.modelText = modelText;
   }
 }
 
@@ -178,23 +181,35 @@ async function askOpenAI(
   });
   try {
     const input = `Icon request: ${prompt}`;
-    const response = cfg.chatgptPlan
-      ? // ChatGPT plan route: stream: true, store: false, input as an array (OpenAI requirements).
-        await client.responses
-          .stream(
-            {
-              model: cfg.model,
-              instructions: ICON_SYSTEM_PROMPT,
-              input: [{ role: "user", content: input }],
-              store: false,
-            },
-            { signal },
-          )
-          .finalResponse()
-      : await client.responses.create(
-          { model: cfg.model, instructions: ICON_SYSTEM_PROMPT, input },
-          { signal },
-        );
+    if (cfg.chatgptPlan) {
+      // ChatGPT plan route: stream: true, store: false, input as an array (OpenAI requirements).
+      const stream = client.responses.stream(
+        {
+          model: cfg.model,
+          instructions: ICON_SYSTEM_PROMPT,
+          input: [{ role: "user", content: input }],
+          store: false,
+        },
+        { signal },
+      );
+      // Collect the text as it streams: with store: false the final event may omit the output.
+      let streamed = "";
+      for await (const event of stream) {
+        if (event.type === "response.output_text.delta")
+          streamed += event.delta;
+      }
+      const response = await stream.finalResponse();
+      return {
+        text: response.output_text || streamed,
+        model: response.model,
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+      };
+    }
+    const response = await client.responses.create(
+      { model: cfg.model, instructions: ICON_SYSTEM_PROMPT, input },
+      { signal },
+    );
     return {
       text: response.output_text,
       model: response.model,
@@ -273,8 +288,11 @@ export async function generateIcons(
   const svgs = svgsFromModelText(answer.text);
   if (svgs.length === 0)
     throw new AiError(
-      "The model didn't return a usable icon. Try again or rephrase.",
+      answer.text.trim()
+        ? "The model's answer had no usable icon. Try again or rephrase."
+        : "The model returned an empty answer. Try again.",
       usage,
+      answer.text.slice(0, 4000),
     );
   return { items: svgs.slice(0, ICON_COUNT), usage };
 }
