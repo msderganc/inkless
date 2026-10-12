@@ -15,6 +15,7 @@ export type Rotation = z.infer<typeof rotationSchema>;
 /** Elements beyond these bounds cannot be on any label; bounding them keeps rendering cheap. */
 export const MAX_ELEMENT_MM = 500;
 export const MAX_IMAGE_SRC_CHARS = 6_000_000;
+export const MAX_SVG_CHARS = 200_000;
 
 const box = {
   id: z.string().min(1).max(100),
@@ -38,6 +39,11 @@ export const textElementSchema = z.object({
   align: z.enum(["left", "center", "right"]),
   /** Shrink the font so the longest line fits the box width. */
   autoFit: z.boolean(),
+  /**
+   * Curved text along the circle inscribed in the box: "top" reads clockwise over the top,
+   * "bottom" reads left to right along the bottom (classic round-label layout).
+   */
+  arc: z.enum(["none", "top", "bottom"]).default("none"),
 });
 
 export const imageElementSchema = z.object({
@@ -51,9 +57,41 @@ export const imageElementSchema = z.object({
   invert: z.boolean(),
 });
 
+export const shapeElementSchema = z.object({
+  ...box,
+  kind: z.literal("shape"),
+  /**
+   * rect / ellipse fill the box; line runs across the middle of the box; frame follows the
+   * label's own outline (round, rectangle, jewelry panels…) just inside the printable area.
+   */
+  shape: z.enum(["rect", "ellipse", "line", "frame"]),
+  strokeMm: z.number().positive().max(20),
+  fill: z.boolean(),
+  /** Rectangle corner radius. */
+  cornerMm: z.number().min(0).max(50),
+  /** Frame: a second ring inside the first (classic double border). */
+  double: z.boolean().default(false),
+});
+
+/** A monochrome vector icon (from the built-in library or AI), stored as sanitised SVG. */
+export const iconElementSchema = z.object({
+  ...box,
+  kind: z.literal("icon"),
+  svg: z.string().startsWith("<svg").max(MAX_SVG_CHARS),
+  name: z.string().max(200),
+  source: z.enum(["library", "ai"]),
+  invert: z.boolean().default(false),
+  /** Library icons: line weight on the 24-unit grid (the SVG is regenerated when it changes). */
+  weight: z.number().min(0.5).max(6).optional(),
+  /** Library icons: Lucide icon key, to regenerate at another weight. */
+  libraryKey: z.string().max(100).optional(),
+});
+
 export const elementSchema = z.discriminatedUnion("kind", [
   textElementSchema,
   imageElementSchema,
+  shapeElementSchema,
+  iconElementSchema,
 ]);
 
 export const designSchema = z.object({
@@ -66,6 +104,8 @@ export const designSchema = z.object({
 
 export type TextElement = z.infer<typeof textElementSchema>;
 export type ImageElement = z.infer<typeof imageElementSchema>;
+export type ShapeElement = z.infer<typeof shapeElementSchema>;
+export type IconElement = z.infer<typeof iconElementSchema>;
 export type DesignElement = z.infer<typeof elementSchema>;
 export type Design = z.infer<typeof designSchema>;
 
@@ -99,13 +139,66 @@ export function newText(
     underline: false,
     align: "center",
     autoFit: true,
+    arc: "none",
   };
 }
 
-export const BATCH_PLACEHOLDER = "{n}";
+export function newShape(
+  shape: ShapeElement["shape"],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): ShapeElement {
+  return {
+    id: newId(),
+    kind: "shape",
+    shape,
+    x,
+    y,
+    w,
+    h: shape === "line" ? Math.max(1, Math.min(h, 2)) : h,
+    rotation: 0,
+    strokeMm: 0.5,
+    fill: false,
+    cornerMm: shape === "rect" ? 1.5 : 0,
+    double: false,
+  };
+}
 
+export function newIcon(
+  svg: string,
+  name: string,
+  source: IconElement["source"],
+  x: number,
+  y: number,
+  size: number,
+): IconElement {
+  return {
+    id: newId(),
+    kind: "icon",
+    svg,
+    name,
+    source,
+    x,
+    y,
+    w: size,
+    h: size,
+    rotation: 0,
+    invert: false,
+  };
+}
+
+/** Matches {name}, {n}, {today}, {today+7}, {Due Date}… (no nested braces). */
+export const PLACEHOLDER_RE = /\{([^{}\n]{1,60})\}/g;
+
+/** True if any text uses a placeholder that a batch (sequence, list or CSV column) fills. */
 export function designUsesBatch(design: Design): boolean {
   return design.elements.some(
-    (e) => e.kind === "text" && e.text.includes(BATCH_PLACEHOLDER),
+    (e) =>
+      e.kind === "text" &&
+      [...e.text.matchAll(PLACEHOLDER_RE)].some(
+        (m) => !/^today([+-]\d+)?$/i.test(m[1]!.trim()),
+      ),
   );
 }

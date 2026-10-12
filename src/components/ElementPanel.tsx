@@ -23,10 +23,13 @@ import { type AlignMode, alignElement } from "~/lib/align";
 import { type LabelSpec } from "~/lib/catalogue";
 import {
   type DesignElement,
+  type IconElement,
   type ImageElement,
   type Rotation,
+  type ShapeElement,
   type TextElement,
 } from "~/lib/design";
+import { loadIconLibrary, lucideToSvg } from "~/lib/icons";
 import { useState } from "react";
 import {
   canListInstalledFonts,
@@ -88,35 +91,45 @@ function Num({
   );
 }
 
-const BOX_ALIGN: { mode: AlignMode; icon: typeof AlignLeft; label: string }[] =
-  [
-    {
-      mode: "left",
-      icon: AlignHorizontalJustifyStart,
-      label: "Align box left",
-    },
-    {
-      mode: "hcenter",
-      icon: AlignHorizontalJustifyCenter,
-      label: "Centre box horizontally",
-    },
-    {
-      mode: "right",
-      icon: AlignHorizontalJustifyEnd,
-      label: "Align box right",
-    },
-    { mode: "top", icon: AlignVerticalJustifyStart, label: "Align box top" },
-    {
-      mode: "vcenter",
-      icon: AlignVerticalJustifyCenter,
-      label: "Centre box vertically",
-    },
-    {
-      mode: "bottom",
-      icon: AlignVerticalJustifyEnd,
-      label: "Align box bottom",
-    },
-  ];
+const KIND_NAMES: Record<DesignElement["kind"], string> = {
+  text: "Text",
+  image: "Image",
+  shape: "Shape",
+  icon: "Icon",
+};
+
+export const BOX_ALIGN: {
+  mode: AlignMode;
+  icon: typeof AlignLeft;
+  label: string;
+}[] = [
+  {
+    mode: "left",
+    icon: AlignHorizontalJustifyStart,
+    label: "Align box left",
+  },
+  {
+    mode: "hcenter",
+    icon: AlignHorizontalJustifyCenter,
+    label: "Centre box horizontally",
+  },
+  {
+    mode: "right",
+    icon: AlignHorizontalJustifyEnd,
+    label: "Align box right",
+  },
+  { mode: "top", icon: AlignVerticalJustifyStart, label: "Align box top" },
+  {
+    mode: "vcenter",
+    icon: AlignVerticalJustifyCenter,
+    label: "Centre box vertically",
+  },
+  {
+    mode: "bottom",
+    icon: AlignVerticalJustifyEnd,
+    label: "Align box bottom",
+  },
+];
 
 export function ElementPanel({
   element: el,
@@ -134,7 +147,7 @@ export function ElementPanel({
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
-          {el.kind === "text" ? "Text" : "Image"}
+          {KIND_NAMES[el.kind]}
         </h2>
         <div className="flex gap-1">
           <IconButton
@@ -167,6 +180,8 @@ export function ElementPanel({
 
       {el.kind === "text" && <TextFields el={el} set={set} />}
       {el.kind === "image" && <ImageFields el={el} set={set} />}
+      {el.kind === "shape" && <ShapeFields el={el} set={set} />}
+      {el.kind === "icon" && <IconFields el={el} set={set} />}
 
       <div className="space-y-2">
         <p className={sectionLabel}>Position on label</p>
@@ -345,6 +360,130 @@ function TextFields({
           Shrink to fit
         </label>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        Path
+        <select
+          className={field}
+          value={el.arc}
+          onChange={(e) => set({ arc: e.target.value as TextElement["arc"] })}
+        >
+          <option value="none">Straight</option>
+          <option value="top">Curved along the top</option>
+          <option value="bottom">Curved along the bottom</option>
+        </select>
+      </label>
+      {el.arc !== "none" && (
+        <p className="text-xs text-neutral-500">
+          Text follows the circle inside the box. Make the box cover the label
+          (centre it and set W and H to the label size) for text around the
+          edge.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ShapeFields({
+  el,
+  set,
+}: {
+  el: ShapeElement;
+  set: (p: Partial<ShapeElement>) => void;
+}) {
+  return (
+    <div className="space-y-2 text-sm">
+      <div className="grid grid-cols-2 gap-2">
+        <Num
+          label="Line mm"
+          value={el.strokeMm}
+          step={0.1}
+          min={0.13}
+          max={20}
+          onChange={(strokeMm) =>
+            set({ strokeMm: Math.min(20, Math.max(0.13, strokeMm)) })
+          }
+        />
+        {el.shape === "rect" && (
+          <Num
+            label="Corner mm"
+            value={el.cornerMm}
+            step={0.5}
+            min={0}
+            onChange={(cornerMm) => set({ cornerMm: Math.max(0, cornerMm) })}
+          />
+        )}
+      </div>
+      {(el.shape === "rect" || el.shape === "ellipse") && (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={el.fill}
+            onChange={(e) => set({ fill: e.target.checked })}
+          />
+          Filled
+        </label>
+      )}
+      {el.shape === "frame" && (
+        <>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={el.double}
+              onChange={(e) => set({ double: e.target.checked })}
+            />
+            Double border
+          </label>
+          <p className="text-xs text-neutral-500">
+            The border follows the label&apos;s shape.
+          </p>
+        </>
+      )}
+      {el.strokeMm < 0.25 && (
+        <p className="text-xs text-amber-700">
+          Lines under 0.25 mm (2 printer dots) may print faintly.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function IconFields({
+  el,
+  set,
+}: {
+  el: IconElement;
+  set: (p: Partial<IconElement>) => void;
+}) {
+  const changeWeight = async (weight: number) => {
+    const icon = (await loadIconLibrary()).find((i) => i.key === el.libraryKey);
+    if (icon) set({ weight, svg: lucideToSvg(icon.node, weight) });
+  };
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="text-xs text-neutral-500">
+        {el.source === "ai" ? "AI icon" : "Library icon"}: {el.name}
+      </p>
+      {el.source === "library" && el.libraryKey && (
+        <label className="flex items-center gap-2">
+          Line weight
+          <input
+            type="range"
+            min={1.5}
+            max={4}
+            step={0.25}
+            value={el.weight ?? 2.5}
+            onChange={(e) => void changeWeight(Number(e.target.value))}
+          />
+        </label>
+      )}
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={el.invert}
+          onChange={(e) => set({ invert: e.target.checked })}
+        />
+        Invert (white icon on black)
+      </label>
     </div>
   );
 }

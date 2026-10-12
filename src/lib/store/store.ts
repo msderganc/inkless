@@ -1,5 +1,6 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import { z } from "zod";
+import { DEFAULT_MODELS } from "../ai/models";
 import { batchSpecSchema, type BatchSpec } from "../batch";
 import { designSchema, type Design } from "../design";
 
@@ -70,7 +71,25 @@ interface LabelDb extends DBSchema {
   settings: { key: string; value: { key: string; value: Settings } };
   /** The editor's unsaved working state, restored on refresh (added in DB version 2). */
   drafts: { key: string; value: { key: string; value: Draft } };
+  /** AI provider keys and models (DB version 3). Never included in backups. */
+  secrets: { key: string; value: { key: string; value: AiSettings } };
 }
+
+export const aiSettingsSchema = z.object({
+  provider: z.enum(["anthropic", "openai"]),
+  anthropicKey: z.string().max(500),
+  openaiKey: z.string().max(500),
+  anthropicModel: z.string().min(1).max(100),
+  openaiModel: z.string().min(1).max(100),
+});
+export type AiSettings = z.infer<typeof aiSettingsSchema>;
+export const DEFAULT_AI_SETTINGS: AiSettings = {
+  provider: "anthropic",
+  anthropicKey: "",
+  openaiKey: "",
+  anthropicModel: DEFAULT_MODELS.anthropic,
+  openaiModel: DEFAULT_MODELS.openai,
+};
 
 /** Editor working state that survives a page refresh. */
 export const draftSchema = z.object({
@@ -87,7 +106,7 @@ export const draftSchema = z.object({
 export type Draft = z.infer<typeof draftSchema>;
 
 export const DB_NAME = "label-printer";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export class Store {
   private constructor(private readonly db: IDBPDatabase<LabelDb>) {}
@@ -113,6 +132,7 @@ export class Store {
           db.createObjectStore("settings", { keyPath: "key" });
         }
         if (oldVersion < 2) db.createObjectStore("drafts", { keyPath: "key" });
+        if (oldVersion < 3) db.createObjectStore("secrets", { keyPath: "key" });
       },
     });
     opened.db = db;
@@ -134,6 +154,20 @@ export class Store {
     await this.db.put("drafts", {
       key: "editor",
       value: draftSchema.parse(draft),
+    });
+  }
+
+  /** AI settings, including API keys. Stored only in this browser; not exported. */
+  async getAiSettings(): Promise<AiSettings> {
+    const row = await this.db.get("secrets", "ai");
+    const parsed = aiSettingsSchema.safeParse(row?.value);
+    return parsed.success ? parsed.data : DEFAULT_AI_SETTINGS;
+  }
+
+  async saveAiSettings(value: AiSettings): Promise<void> {
+    await this.db.put("secrets", {
+      key: "ai",
+      value: aiSettingsSchema.parse(value),
     });
   }
 

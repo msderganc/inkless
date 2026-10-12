@@ -89,10 +89,10 @@ describe("renderLabel", () => {
       fontSizeMm: 10,
     };
     const a = await renderLabel(design(spec, [el]), spec, nodeEnv, {
-      batchValue: "1",
+      record: { n: "1" },
     });
     const b = await renderLabel(design(spec, [el]), spec, nodeEnv, {
-      batchValue: "888",
+      record: { n: "888" },
     });
     expect(blackCount(b.label)).toBeGreaterThan(blackCount(a.label));
   });

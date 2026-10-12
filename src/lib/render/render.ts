@@ -1,11 +1,14 @@
-import { type LabelSpec } from "../catalogue";
-import { substitute } from "../batch";
+import { type LabelSpec, SAFE_MARGIN_MM } from "../catalogue";
+import { type BatchRecord, substitute } from "../batch";
 import {
   type Design,
   type DesignElement,
+  type IconElement,
   type ImageElement,
+  type ShapeElement,
   type TextElement,
 } from "../design";
+import { svgToDataUrl } from "../svg";
 import {
   DOTS_PER_MM,
   mmToDots,
@@ -78,7 +81,10 @@ export interface RenderEnv {
 }
 
 export interface RenderOptions {
-  batchValue?: string | null;
+  /** This label's batch values ({n}, CSV columns); null/undefined for a single label. */
+  record?: BatchRecord | null;
+  /** Date used for {today}/{today+N} (default: now). */
+  now?: Date;
   /** Horizontal calibration in dots: shifts the printed content (positive = right). */
   offsetDots?: number;
   /**
@@ -143,13 +149,64 @@ export function fitFontPx(
   return Math.max(1, px);
 }
 
+/**
+ * Curved text on the circle inscribed in the element box. "top" runs clockwise over the top
+ * with letters upright from outside; "bottom" reads left to right along the bottom.
+ */
+function drawArcText(ctx: Ctx2D, el: TextElement, text: string, s: number) {
+  const line = text.replace(/\r?\n/g, " ");
+  withElementTransform(ctx, el, s, (w, h) => {
+    const outer = Math.min(w, h) / 2;
+    let px = el.fontSizeMm * s;
+    ctx.font = fontString(el, px);
+    // Baseline radius: glyphs sit just inside the box's circle.
+    let r = outer - px * 0.6;
+    const width = () => ctx.measureText(line).width;
+    if (el.autoFit && r > 0) {
+      // Keep the text within ~80% of the half circle.
+      const maxArc = Math.PI * r * 0.8;
+      if (width() > maxArc) {
+        px = Math.max(1, (px * maxArc) / width());
+        ctx.font = fontString(el, px);
+        r = outer - px * 0.6;
+      }
+    }
+    if (r <= 0) return;
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const total = width() / r;
+    const top = el.arc === "top";
+    let along = 0;
+    for (const ch of [...line]) {
+      const cw = ctx.measureText(ch).width;
+      const mid = (along + cw / 2) / r;
+      const a = top
+        ? -Math.PI / 2 - total / 2 + mid
+        : Math.PI / 2 + total / 2 - mid;
+      ctx.save();
+      ctx.translate(w / 2 + r * Math.cos(a), h / 2 + r * Math.sin(a));
+      ctx.rotate(top ? a + Math.PI / 2 : a - Math.PI / 2);
+      ctx.fillText(ch, 0, 0);
+      ctx.restore();
+      along += cw;
+    }
+  });
+}
+
 function drawText(
   ctx: Ctx2D,
   el: TextElement,
-  value: string | null,
+  record: BatchRecord | null,
+  now: Date,
   s: number,
 ) {
-  const lines = substitute(el.text, value).split(/\r?\n/);
+  const text = substitute(el.text, record, now);
+  if (el.arc !== "none") {
+    drawArcText(ctx, el, text, s);
+    return;
+  }
+  const lines = text.split(/\r?\n/);
   withElementTransform(ctx, el, s, (w, h) => {
     const px = fitFontPx(ctx, el, lines, w, h, s);
     ctx.font = fontString(el, px);
@@ -223,6 +280,108 @@ async function drawImage(
   withElementTransform(ctx, el, s, () => ctx.drawImage(stamp, 0, 0, bw, bh));
 }
 
+/** Shapes: rectangle, ellipse, line across the box, or a frame following the label outline. */
+function drawShape(ctx: Ctx2D, el: ShapeElement, s: number, spec: LabelSpec) {
+  const c = ctx as unknown as CanvasRenderingContext2D;
+  // At least one printer dot thick so thin lines never vanish.
+  const stroke = Math.max(s / DOTS_PER_MM, el.strokeMm * s);
+  c.save();
+  c.fillStyle = "#000";
+  c.strokeStyle = "#000";
+  c.lineWidth = stroke;
+  if (el.shape === "frame") {
+    // Follows the die-cut: drawn in label coordinates, ignoring the box.
+    const rings = el.double ? [0, stroke * 2] : [0];
+    for (const extra of rings) {
+      const inset = SAFE_MARGIN_MM + (stroke / 2 + extra) / s;
+      traceRegion(c, safeRegion(spec, inset), s);
+      c.stroke();
+    }
+    c.restore();
+    return;
+  }
+  c.restore();
+  withElementTransform(ctx, el, s, (w, h) => {
+    c.save();
+    c.fillStyle = "#000";
+    c.strokeStyle = "#000";
+    c.lineWidth = stroke;
+    c.beginPath();
+    if (el.shape === "line") {
+      c.fillRect(0, h / 2 - stroke / 2, w, stroke);
+      c.restore();
+      return;
+    }
+    // Inset by half the stroke so the outline stays inside the box.
+    const i = el.fill ? 0 : stroke / 2;
+    if (el.shape === "ellipse") {
+      c.ellipse(
+        w / 2,
+        h / 2,
+        Math.max(0, w / 2 - i),
+        Math.max(0, h / 2 - i),
+        0,
+        0,
+        Math.PI * 2,
+      );
+    } else {
+      const rad = Math.max(
+        0,
+        Math.min(el.cornerMm * s, (w - 2 * i) / 2, (h - 2 * i) / 2),
+      );
+      c.roundRect(i, i, Math.max(0, w - 2 * i), Math.max(0, h - 2 * i), rad);
+    }
+    if (el.fill) c.fill();
+    else c.stroke();
+    c.restore();
+  });
+}
+
+/** Icons are monochrome SVG: drawn at device size, then thresholded (never dithered). */
+function iconAsImage(el: IconElement): ImageElement {
+  return {
+    id: el.id,
+    kind: "image",
+    x: el.x,
+    y: el.y,
+    w: el.w,
+    h: el.h,
+    rotation: el.rotation,
+    src: svgToDataUrl(el.svg),
+    dither: false,
+    threshold: 128,
+    invert: el.invert,
+  };
+}
+
+async function drawElements(
+  ctx: Ctx2D,
+  design: Design,
+  spec: LabelSpec,
+  env: RenderEnv,
+  s: number,
+  maxDots: number,
+  record: BatchRecord | null,
+  now: Date,
+) {
+  for (const el of design.elements) {
+    switch (el.kind) {
+      case "text":
+        drawText(ctx, el, record, now, s);
+        break;
+      case "image":
+        await drawImage(ctx, el, env, s, maxDots);
+        break;
+      case "icon":
+        await drawImage(ctx, iconAsImage(el), env, s, maxDots);
+        break;
+      case "shape":
+        drawShape(ctx, el, s, spec);
+        break;
+    }
+  }
+}
+
 /** Clear every pixel whose centre lies outside the label's safe area. */
 export function maskToSafeArea(bmp: MonoBitmap, spec: LabelSpec): void {
   const region = safeRegion(spec);
@@ -274,7 +433,7 @@ export async function renderPreview(
   spec: LabelSpec,
   env: RenderEnv,
   pxPerMm: number,
-  opts: { batchValue?: string | null } = {},
+  opts: { record?: BatchRecord | null; now?: Date } = {},
 ): Promise<CanvasLike> {
   const width = Math.max(1, Math.round(spec.widthMm * pxPerMm));
   const height = Math.max(1, Math.round(spec.heightMm * pxPerMm));
@@ -284,10 +443,16 @@ export async function renderPreview(
   ctx.save();
   traceRegion(ctx as unknown as PathSink, safeRegion(spec), pxPerMm);
   ctx.clip();
-  for (const el of design.elements) {
-    if (el.kind === "text") drawText(ctx, el, opts.batchValue ?? null, pxPerMm);
-    else await drawImage(ctx, el, env, pxPerMm, Math.max(width, height));
-  }
+  await drawElements(
+    ctx,
+    design,
+    spec,
+    env,
+    pxPerMm,
+    Math.max(width, height),
+    opts.record ?? null,
+    opts.now ?? new Date(),
+  );
   ctx.restore();
   return canvas;
 }
@@ -308,10 +473,16 @@ export async function renderLabel(
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, width, height);
 
-  for (const el of design.elements) {
-    if (el.kind === "text") drawText(ctx, el, opts.batchValue ?? null, s);
-    else await drawImage(ctx, el, env, s, Math.max(width, height));
-  }
+  await drawElements(
+    ctx,
+    design,
+    spec,
+    env,
+    s,
+    Math.max(width, height),
+    opts.record ?? null,
+    opts.now ?? new Date(),
+  );
 
   const gray = luminance(
     ctx.getImageData(0, 0, width, height).data,

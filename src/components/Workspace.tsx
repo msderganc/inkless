@@ -5,6 +5,7 @@ import { type LabelSpec } from "~/lib/catalogue";
 import { type Design, type DesignElement } from "~/lib/design";
 import { DOTS_PER_MM, dotsToMm, printWindow } from "~/lib/geometry";
 import { type MonoBitmap } from "~/lib/render/mono";
+import { type Box, boxLines, snapMove, unionBox } from "~/lib/snap";
 import { type CanvasLike } from "~/lib/render/render";
 import {
   guideLines,
@@ -21,19 +22,56 @@ interface Props {
   /** Anti-aliased preview at zoom × devicePixelRatio (Design view). */
   smooth?: CanvasLike;
   view: "design" | "print";
-  selectedId?: string;
+  selectedIds: string[];
   zoom: number;
-  onSelect: (id: string | undefined) => void;
-  onChange: (el: DesignElement) => void;
+  /** Select one element (or none); with `additive` toggle it in a multi-selection. */
+  onSelect: (id: string | undefined, additive?: boolean) => void;
+  /** Elements moved or resized by a drag (one undo step per drag). */
+  onChange: (els: DesignElement[]) => void;
 }
 
 type Drag = {
-  id: string;
+  anchorId: string;
   mode: "move" | "resize";
   startX: number;
   startY: number;
-  orig: DesignElement;
+  /** Elements being moved, as they were when the drag started. */
+  origs: DesignElement[];
 };
+
+function elementLabel(el: DesignElement): string {
+  switch (el.kind) {
+    case "text":
+      return `Text: ${el.text}`;
+    case "image":
+      return "Image";
+    case "shape":
+      return `Shape: ${el.shape}`;
+    case "icon":
+      return `Icon: ${el.name}`;
+  }
+}
+
+/** Lines to snap to: label centre, printable-area edges, other elements' edges and centres. */
+function snapTargets(spec: LabelSpec, others: DesignElement[]) {
+  const region = safeRegion(spec);
+  const areas: Box[] =
+    region.kind === "circle"
+      ? [
+          {
+            x: region.cx - region.r,
+            y: region.cy - region.r,
+            w: 2 * region.r,
+            h: 2 * region.r,
+          },
+        ]
+      : region.rects;
+  const lines = boxLines([...areas, ...others]);
+  return {
+    xs: [spec.widthMm / 2, ...lines.xs],
+    ys: [spec.heightMm / 2, ...lines.ys],
+  };
+}
 
 const MIN_SIZE_MM = 2;
 
@@ -44,7 +82,7 @@ export function Workspace({
   preview,
   smooth,
   view,
-  selectedId,
+  selectedIds,
   zoom,
   onSelect,
   onChange,
@@ -52,6 +90,10 @@ export function Workspace({
   const pixels = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const [drag, setDrag] = useState<Drag>();
+  const [guides, setGuides] = useState<{ xs: number[]; ys: number[] }>({
+    xs: [],
+    ys: [],
+  });
   const w = spec.widthMm * zoom;
   const h = spec.heightMm * zoom;
 
@@ -125,17 +167,45 @@ export function Workspace({
       const dx = (e.clientX - drag.startX) / zoom;
       const dy = (e.clientY - drag.startY) / zoom;
       const round = (v: number) => Math.round(v * 4) / 4; // 0.25 mm steps
-      const o = drag.orig;
-      if (drag.mode === "move")
-        onChange({ ...o, x: round(o.x + dx), y: round(o.y + dy) });
-      else
-        onChange({
-          ...o,
-          w: Math.max(MIN_SIZE_MM, round(o.w + dx)),
-          h: Math.max(MIN_SIZE_MM, round(o.h + dy)),
-        });
+      if (drag.mode === "resize") {
+        const o = drag.origs[0]!;
+        onChange([
+          {
+            ...o,
+            w: Math.max(MIN_SIZE_MM, round(o.w + dx)),
+            h: Math.max(MIN_SIZE_MM, round(o.h + dy)),
+          },
+        ]);
+        return;
+      }
+      // Move the whole selection; snap its bounding box unless Alt is held.
+      const start = unionBox(drag.origs);
+      const moved = {
+        ...start,
+        x: round(start.x + dx),
+        y: round(start.y + dy),
+      };
+      let fx = moved.x;
+      let fy = moved.y;
+      if (!e.altKey) {
+        const ids = new Set(drag.origs.map((o) => o.id));
+        const t = snapTargets(
+          spec,
+          design.elements.filter((el) => !ids.has(el.id)),
+        );
+        const snapped = snapMove(moved, t.xs, t.ys);
+        fx = snapped.x;
+        fy = snapped.y;
+        setGuides({ xs: snapped.guidesX, ys: snapped.guidesY });
+      } else setGuides({ xs: [], ys: [] });
+      const ddx = fx - start.x;
+      const ddy = fy - start.y;
+      onChange(drag.origs.map((o) => ({ ...o, x: o.x + ddx, y: o.y + ddy })));
     };
-    const up = () => setDrag(undefined);
+    const up = () => {
+      setDrag(undefined);
+      setGuides({ xs: [], ys: [] });
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
@@ -144,7 +214,7 @@ export function Workspace({
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, [drag, zoom, onChange]);
+  }, [drag, zoom, onChange, spec, design.elements]);
 
   const startDrag = (
     e: React.PointerEvent,
@@ -153,13 +223,22 @@ export function Workspace({
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    onSelect(el.id);
+    if (mode === "move" && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      onSelect(el.id, true); // toggle in the multi-selection; no drag
+      return;
+    }
+    // Dragging an already-selected element moves the whole selection.
+    const group =
+      mode === "move" && selectedIds.includes(el.id)
+        ? design.elements.filter((x) => selectedIds.includes(x.id))
+        : [el];
+    if (!selectedIds.includes(el.id)) onSelect(el.id);
     setDrag({
-      id: el.id,
+      anchorId: el.id,
       mode,
       startX: e.clientX,
       startY: e.clientY,
-      orig: el,
+      origs: group,
     });
   };
 
@@ -192,13 +271,14 @@ export function Workspace({
       />
       {view === "design" &&
         design.elements.map((el) => {
-          const selected = el.id === selectedId;
+          const selected = selectedIds.includes(el.id);
+          const single = selected && selectedIds.length === 1;
           return (
             <div
               key={el.id}
               role="button"
               tabIndex={0}
-              aria-label={el.kind === "text" ? `Text: ${el.text}` : "Image"}
+              aria-label={elementLabel(el)}
               aria-pressed={selected}
               className={`absolute cursor-move ${selected ? "outline-2 outline-sky-500" : "outline-1 outline-transparent hover:outline-neutral-400"} outline-dashed`}
               style={{
@@ -208,9 +288,9 @@ export function Workspace({
                 height: el.h * zoom,
               }}
               onPointerDown={(e) => startDrag(e, el, "move")}
-              onFocus={() => onSelect(el.id)}
+              onFocus={() => !selected && onSelect(el.id)}
             >
-              {selected && (
+              {single && (
                 <span
                   className="absolute -right-1.5 -bottom-1.5 size-3 cursor-se-resize rounded-sm bg-sky-500"
                   onPointerDown={(e) => startDrag(e, el, "resize")}
@@ -220,6 +300,22 @@ export function Workspace({
             </div>
           );
         })}
+      {guides.xs.map((x) => (
+        <span
+          key={`gx${x}`}
+          className="pointer-events-none absolute top-0 bottom-0 w-px bg-fuchsia-500"
+          style={{ left: x * zoom }}
+          aria-hidden
+        />
+      ))}
+      {guides.ys.map((y) => (
+        <span
+          key={`gy${y}`}
+          className="pointer-events-none absolute right-0 left-0 h-px bg-fuchsia-500"
+          style={{ top: y * zoom }}
+          aria-hidden
+        />
+      ))}
     </div>
   );
 }

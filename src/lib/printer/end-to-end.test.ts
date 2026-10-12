@@ -43,8 +43,11 @@ describe("end to end with the real D110 print task", () => {
       labelType: labelTypeFor(spec.stock),
       renderPage: async (i) =>
         encodeForPrinter(
-          (await renderLabel(design, spec, nodeEnv, { batchValue: values[i]! }))
-            .print,
+          (
+            await renderLabel(design, spec, nodeEnv, {
+              record: { n: values[i]! },
+            })
+          ).print,
         ),
     });
 

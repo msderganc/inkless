@@ -1,13 +1,15 @@
 "use client";
 
-import { CircleStop, Printer } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CircleStop, FileSpreadsheet, Printer } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import {
   BatchError,
+  batchRecords,
   type BatchSpec,
-  batchValues,
   MAX_BATCH,
+  parseCsv,
   parseList,
+  recordLabel,
 } from "~/lib/batch";
 import { MAX_COPIES } from "~/lib/printer/session";
 import { IconButton } from "./IconButton";
@@ -33,15 +35,37 @@ export function PrintPanel(p: Props) {
   const [listText, setListText] = useState(
     p.batch.kind === "list" ? p.batch.items.join("\n") : "",
   );
+  const [csvError, setCsvError] = useState<string>();
+  const csvInput = useRef<HTMLInputElement>(null);
   const summary = useMemo(() => {
     try {
-      const v = batchValues(p.batch);
+      const v = batchRecords(p.batch);
       if (v[0] === null) return { count: 1 };
-      return { count: v.length, first: v[0], last: v[v.length - 1] };
+      return {
+        count: v.length,
+        first: recordLabel(p.batch, v[0]!),
+        last: recordLabel(p.batch, v[v.length - 1]!),
+      };
     } catch (e) {
       return { error: e instanceof BatchError ? e.message : String(e) };
     }
   }, [p.batch]);
+
+  const loadCsv = async (file: File) => {
+    setCsvError(undefined);
+    try {
+      if (file.size > 2 * 1024 * 1024)
+        throw new BatchError("That file is larger than 2 MB.");
+      const { columns, rows } = parseCsv(await file.text());
+      p.onBatch({ kind: "csv", fileName: file.name, columns, rows });
+    } catch (e) {
+      setCsvError(
+        e instanceof BatchError
+          ? e.message
+          : "That file could not be read as CSV.",
+      );
+    }
+  };
 
   const printing = p.state === "printing" || p.state === "cancelling";
   const labels = "count" in summary ? summary.count! * p.copies : 0;
@@ -86,31 +110,39 @@ export function PrintPanel(p: Props) {
       <fieldset className="space-y-2 text-sm">
         <legend className="mb-1 text-xs text-neutral-600">Batch</legend>
         <div className="flex gap-3">
-          {(["none", "sequence", "list"] as const).map((k) => (
+          {(["none", "sequence", "list", "csv"] as const).map((k) => (
             <label key={k} className="flex items-center gap-1">
               <input
                 type="radio"
                 name="batch"
                 checked={p.batch.kind === k}
                 onChange={() =>
-                  p.onBatch(
-                    k === "none"
-                      ? { kind: "none" }
-                      : k === "sequence"
-                        ? {
-                            kind: "sequence",
-                            start: 1,
-                            step: 1,
-                            count: 10,
-                            pad: 0,
-                            prefix: "",
-                            suffix: "",
-                          }
-                        : { kind: "list", items: parseList(listText) },
-                  )
+                  k === "csv"
+                    ? csvInput.current?.click()
+                    : p.onBatch(
+                        k === "none"
+                          ? { kind: "none" }
+                          : k === "sequence"
+                            ? {
+                                kind: "sequence",
+                                start: 1,
+                                step: 1,
+                                count: 10,
+                                pad: 0,
+                                prefix: "",
+                                suffix: "",
+                              }
+                            : { kind: "list", items: parseList(listText) },
+                      )
                 }
               />
-              {k === "none" ? "Single" : k === "sequence" ? "Numbers" : "List"}
+              {k === "none"
+                ? "Single"
+                : k === "sequence"
+                  ? "Numbers"
+                  : k === "list"
+                    ? "List"
+                    : "Spreadsheet"}
             </label>
           ))}
         </div>
@@ -130,11 +162,56 @@ export function PrintPanel(p: Props) {
           />
         )}
 
+        <input
+          ref={csvInput}
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void loadCsv(file);
+          }}
+        />
+        {p.batch.kind === "csv" && (
+          <div className="space-y-1 rounded border border-neutral-200 p-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate" title={p.batch.fileName}>
+                {p.batch.fileName} · {p.batch.rows.length} rows
+              </span>
+              <IconButton
+                icon={FileSpreadsheet}
+                label="Choose another CSV file"
+                size="sm"
+                onClick={() => csvInput.current?.click()}
+              />
+            </div>
+            <p className="text-neutral-600">Use these in any text box:</p>
+            <div className="flex flex-wrap gap-1">
+              {p.batch.columns.map((c) => (
+                <code key={c} className="rounded bg-neutral-100 px-1">
+                  {"{"}
+                  {c}
+                  {"}"}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+        {csvError && <p className="text-xs text-red-700">{csvError}</p>}
+
         {p.batch.kind !== "none" && !p.usesPlaceholder && (
           <p className="text-xs text-amber-700">
-            Add {"{n}"} to a text box to print the batch value on each label.
+            {p.batch.kind === "csv"
+              ? "Add a column placeholder like {" +
+                (p.batch.columns[0] ?? "name") +
+                "} to a text box."
+              : "Add {n} to a text box to print the batch value on each label."}
           </p>
         )}
+        <p className="text-xs text-neutral-500">
+          Dates: {"{today}"}, or {"{today+7}"} for a week from now.
+        </p>
         {"error" in summary ? (
           <p className="text-xs text-red-700">{summary.error}</p>
         ) : (

@@ -57,3 +57,24 @@ export function alignElement<T extends DesignElement>(
       return { ...el, y: round(a.y + a.h - el.h) };
   }
 }
+
+/**
+ * Align several elements as one group: their combined bounding box is aligned within the area
+ * of the first element, and every element moves by the same amount (keeps their arrangement).
+ */
+export function alignGroup<T extends DesignElement>(
+  els: T[],
+  spec: LabelSpec,
+  mode: AlignMode,
+): T[] {
+  if (els.length <= 1) return els.map((e) => alignElement(e, spec, mode));
+  const x0 = Math.min(...els.map((e) => e.x));
+  const y0 = Math.min(...els.map((e) => e.y));
+  const x1 = Math.max(...els.map((e) => e.x + e.w));
+  const y1 = Math.max(...els.map((e) => e.y + e.h));
+  const group = { ...els[0]!, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  const moved = alignElement(group, spec, mode);
+  const dx = moved.x - x0;
+  const dy = moved.y - y0;
+  return els.map((e) => ({ ...e, x: round(e.x + dx), y: round(e.y + dy) }));
+}

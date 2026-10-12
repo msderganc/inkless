@@ -59,6 +59,23 @@ describe("upgrades across tabs", () => {
   });
 });
 
+describe("AI settings", () => {
+  it("stores keys locally and never puts them in backups", async () => {
+    expect((await store.getAiSettings()).provider).toBe("anthropic");
+    await store.saveAiSettings({
+      provider: "openai",
+      anthropicKey: "sk-ant-secret",
+      openaiKey: "sk-openai-secret",
+      anthropicModel: "claude-opus-5-5",
+      openaiModel: "gpt-5.5",
+    });
+    expect((await store.getAiSettings()).openaiKey).toBe("sk-openai-secret");
+    const backup = JSON.stringify(await store.exportBackup());
+    expect(backup).not.toContain("sk-ant-secret");
+    expect(backup).not.toContain("sk-openai-secret");
+  });
+});
+
 describe("settings migration", () => {
   it("keeps older saved settings and defaults autoConnect to off", async () => {
     const raw = await openDB(dbName);
