@@ -13,7 +13,12 @@ import {
   PRINTHEAD_DOTS,
   type PrintWindow,
 } from "../geometry";
-import { regionContains, safeRegion } from "../shapes";
+import {
+  type PathSink,
+  regionContains,
+  safeRegion,
+  traceRegion,
+} from "../shapes";
 import {
   dither,
   invert,
@@ -242,6 +247,34 @@ export function applyShapeTransforms(
   }
   // Mask last: rotation and tiling are rounded to whole dots and must not push ink outside the die-cut.
   maskToSafeArea(bmp, spec);
+}
+
+/**
+ * Smooth on-screen preview of the design (Design view): elements drawn at `pxPerMm` with
+ * anti-aliasing, clipped to the printable area, on a transparent background. Images still show
+ * their 1-bit conversion. Use renderLabel for what actually prints.
+ */
+export async function renderPreview(
+  design: Design,
+  spec: LabelSpec,
+  env: RenderEnv,
+  pxPerMm: number,
+  opts: { batchValue?: string | null } = {},
+): Promise<CanvasLike> {
+  const width = Math.max(1, Math.round(spec.widthMm * pxPerMm));
+  const height = Math.max(1, Math.round(spec.heightMm * pxPerMm));
+  const canvas = env.createCanvas(width, height);
+  // Browser and @napi-rs/canvas contexts both provide clip().
+  const ctx = canvas.getContext("2d") as Ctx2D & { clip(): void };
+  ctx.save();
+  traceRegion(ctx as unknown as PathSink, safeRegion(spec), pxPerMm);
+  ctx.clip();
+  for (const el of design.elements) {
+    if (el.kind === "text") drawText(ctx, el, opts.batchValue ?? null, pxPerMm);
+    else await drawImage(ctx, el, env, pxPerMm, Math.max(width, height));
+  }
+  ctx.restore();
+  return canvas;
 }
 
 /** Render a design for one label (one batch value) to printer-ready 1-bit rasters. */

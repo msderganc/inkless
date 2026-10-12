@@ -1,8 +1,10 @@
 "use client";
 
+import { CopyPlus, Download, Save, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Template } from "~/lib/store/store";
 import { useApp } from "./app-context";
+import { IconButton } from "./IconButton";
 
 interface Props {
   current?: { id: string; name: string };
@@ -80,21 +82,17 @@ export function TemplatesPanel({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <button
-          type="button"
-          className="rounded border px-2 py-1 text-sm hover:bg-neutral-100"
+        <IconButton
+          icon={Save}
+          label={current ? `Save "${current.name}"` : "Save template"}
           onClick={() => void save(false)}
-        >
-          Save
-        </button>
+        />
         {current && (
-          <button
-            type="button"
-            className="rounded border px-2 py-1 text-sm hover:bg-neutral-100"
+          <IconButton
+            icon={CopyPlus}
+            label="Save as new template"
             onClick={() => void save(true)}
-          >
-            Save as new
-          </button>
+          />
         )}
       </div>
       {message && (
@@ -119,37 +117,33 @@ export function TemplatesPanel({
             >
               {t.name}
             </button>
-            <button
-              type="button"
-              className="text-xs text-red-700 hover:underline"
+            <IconButton
+              icon={Trash2}
+              label={`Delete template "${t.name}"`}
+              size="sm"
+              variant="danger"
               onClick={async () => {
-                if (!window.confirm(`Delete template “${t.name}”?`)) return;
+                if (!window.confirm(`Delete template "${t.name}"?`)) return;
                 await store.deleteTemplate(t.id);
                 onDeleted(t.id);
                 await refresh();
               }}
-            >
-              Delete
-            </button>
+            />
           </li>
         ))}
       </ul>
 
       <div className="flex gap-2 text-sm">
-        <button
-          type="button"
-          className="rounded border px-2 py-1 hover:bg-neutral-100"
+        <IconButton
+          icon={Download}
+          label="Export backup (all templates)"
           onClick={() => void exportBackup()}
-        >
-          Export backup
-        </button>
-        <button
-          type="button"
-          className="rounded border px-2 py-1 hover:bg-neutral-100"
+        />
+        <IconButton
+          icon={Upload}
+          label="Import backup"
           onClick={() => fileInput.current?.click()}
-        >
-          Import backup
-        </button>
+        />
         <input
           ref={fileInput}
           type="file"

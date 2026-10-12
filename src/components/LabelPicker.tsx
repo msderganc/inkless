@@ -1,5 +1,6 @@
 "use client";
 
+import { BookmarkCheck, BookmarkPlus, Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   CATALOGUE,
@@ -9,6 +10,7 @@ import {
 } from "~/lib/catalogue";
 import { resolveLabel, suggestLabelsForCapacity } from "~/lib/labels";
 import { useApp, useSessionStatus } from "./app-context";
+import { IconButton } from "./IconButton";
 
 const FAMILIES: ShapeFamily[] = ["rect", "round", "wave", "jewelry", "cable"];
 
@@ -118,13 +120,11 @@ export function LabelPicker({
               onChange={(e) => setCustomH(e.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="rounded border px-2 py-1 hover:bg-neutral-100"
+          <IconButton
+            icon={Check}
+            label="Use this size"
             onClick={applyCustom}
-          >
-            Apply
-          </button>
+          />
         </div>
       )}
 
@@ -151,25 +151,29 @@ export function LabelPicker({
                   <button
                     key={l.id}
                     type="button"
-                    className="rounded border border-sky-300 bg-white px-2 py-0.5 text-sky-800 hover:bg-sky-50"
+                    title={`Use ${l.name} and remember this roll`}
+                    className="inline-flex items-center gap-1 rounded border border-sky-300 bg-white px-2 py-0.5 text-sky-800 hover:bg-sky-50"
                     onClick={() => void chooseSuggested(l.id)}
                   >
+                    <BookmarkCheck size={14} aria-hidden />
                     {l.name}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          {suggestions.length > 0 ? "Otherwise pick" : "Pick"} its label above,
-          then
-          <button
-            type="button"
-            className="ml-1 font-medium text-sky-700 underline"
-            onClick={() => void remember()}
-          >
-            remember this roll
-          </button>
-          .
+          <div className="flex items-center gap-2 text-xs">
+            <span className="flex-1">
+              {suggestions.length > 0 ? "Otherwise pick" : "Pick"} its label
+              above, then remember it.
+            </span>
+            <IconButton
+              icon={BookmarkPlus}
+              label={`Remember this roll as ${spec?.name ?? "the current label"}`}
+              size="sm"
+              onClick={() => void remember()}
+            />
+          </div>
         </div>
       )}
       {barcode && mapped && (
@@ -177,13 +181,14 @@ export function LabelPicker({
           Roll {barcode} is remembered as{" "}
           {resolveLabel(mapped, overrides)?.name ?? mapped}.
           {mapped !== labelId && (
-            <button
-              type="button"
-              className="ml-1 text-sky-700 underline"
-              onClick={() => void remember()}
-            >
-              Update to current label
-            </button>
+            <span className="ml-1 inline-block align-middle">
+              <IconButton
+                icon={BookmarkPlus}
+                label={`Remember this roll as ${spec?.name ?? "the current label"} instead`}
+                size="sm"
+                onClick={() => void remember()}
+              />
+            </span>
           )}
         </p>
       )}

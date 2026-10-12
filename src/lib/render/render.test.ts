@@ -14,7 +14,7 @@ import { DOTS_PER_MM, mmToDots, PRINTHEAD_DOTS } from "../geometry";
 import { regionContains, safeRegion } from "../shapes";
 import { encodeForPrinter } from "./encode";
 import { blackCount, type MonoBitmap } from "./mono";
-import { renderLabel } from "./render";
+import { renderLabel, renderPreview } from "./render";
 
 /** A text element filling the whole label with a black block glyph (█) so coverage is predictable. */
 function fullBlock(spec: LabelSpec): TextElement {
@@ -316,6 +316,49 @@ describe("renderLabel", () => {
       nodeEnv,
     ).catch(() => null);
     if (noSize) expect(blackCount(noSize.label)).toBe(0);
+  });
+});
+
+describe("renderPreview", () => {
+  it("draws smooth (anti-aliased) text clipped to the printable area", async () => {
+    const spec = findLabel("round-31")!;
+    const el = {
+      ...newText(0, 10, 31, 11),
+      text: "Hello",
+      autoFit: false,
+      fontSizeMm: 9,
+    };
+    const scale = 20;
+    const canvas = await renderPreview(
+      design(spec, [el]),
+      spec,
+      nodeEnv,
+      scale,
+    );
+    expect(canvas.width).toBe(31 * scale);
+    const ctx = canvas.getContext("2d") as {
+      getImageData(
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+      ): { data: Uint8ClampedArray };
+    };
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let partial = 0;
+    let outside = 0;
+    const c = 15.5 * scale;
+    const r = (15.5 - 1) * scale + 1;
+    for (let i = 3; i < data.length; i += 4) {
+      const a = data[i]!;
+      if (a > 0 && a < 255) partial++;
+      const p = (i - 3) / 4;
+      const x = p % canvas.width;
+      const y = Math.floor(p / canvas.width);
+      if (a > 0 && Math.hypot(x + 0.5 - c, y + 0.5 - c) > r) outside++;
+    }
+    expect(partial).toBeGreaterThan(100); // anti-aliased edges, not 1-bit blocks
+    expect(outside).toBe(0);
   });
 });
 

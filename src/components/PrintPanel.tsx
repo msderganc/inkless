@@ -1,5 +1,6 @@
 "use client";
 
+import { CircleStop, Printer } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   BatchError,
@@ -9,6 +10,7 @@ import {
   parseList,
 } from "~/lib/batch";
 import { MAX_COPIES } from "~/lib/printer/session";
+import { IconButton } from "./IconButton";
 
 interface Props {
   batch: BatchSpec;
@@ -147,26 +149,39 @@ export function PrintPanel(p: Props) {
 
       <div className="flex items-center gap-2">
         {printing ? (
-          <button
-            type="button"
-            className="rounded bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600 disabled:opacity-60"
-            onClick={p.onCancel}
-            disabled={p.state === "cancelling"}
-          >
-            {p.state === "cancelling" ? "Stopping after this label…" : "Cancel"}
-          </button>
+          <>
+            <IconButton
+              icon={CircleStop}
+              label={
+                p.state === "cancelling"
+                  ? "Stopping after this label"
+                  : "Cancel (stops after the current label)"
+              }
+              variant="warning"
+              size="lg"
+              onClick={p.onCancel}
+              disabled={p.state === "cancelling"}
+            />
+            {p.state === "cancelling" && (
+              <span className="text-xs text-neutral-600">
+                Stopping after this label…
+              </span>
+            )}
+          </>
         ) : (
-          <button
-            type="button"
-            className="rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+          <IconButton
+            icon={Printer}
+            label={
+              p.state !== "ready"
+                ? "Print (connect the printer first)"
+                : `Print ${labels} label${labels === 1 ? "" : "s"}`
+            }
+            variant="primary"
+            size="lg"
+            badge={labels > 1 ? String(labels) : undefined}
             onClick={p.onPrint}
             disabled={p.state !== "ready" || "error" in summary}
-            title={
-              p.state !== "ready" ? "Connect the printer first" : undefined
-            }
-          >
-            Print {labels > 1 ? `${labels} labels` : ""}
-          </button>
+          />
         )}
         {p.progress && printing && (
           <progress

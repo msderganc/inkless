@@ -5,6 +5,7 @@ import { type LabelSpec } from "~/lib/catalogue";
 import { type Design, type DesignElement } from "~/lib/design";
 import { DOTS_PER_MM, dotsToMm, printWindow } from "~/lib/geometry";
 import { type MonoBitmap } from "~/lib/render/mono";
+import { type CanvasLike } from "~/lib/render/render";
 import {
   guideLines,
   safeRegion,
@@ -15,7 +16,10 @@ import {
 interface Props {
   spec: LabelSpec;
   design: Design;
+  /** Exact 1-bit output (As printed view). */
   preview?: MonoBitmap;
+  /** Anti-aliased preview at zoom × devicePixelRatio (Design view). */
+  smooth?: CanvasLike;
   view: "design" | "print";
   selectedId?: string;
   zoom: number;
@@ -38,6 +42,7 @@ export function Workspace({
   spec,
   design,
   preview,
+  smooth,
   view,
   selectedId,
   zoom,
@@ -52,7 +57,17 @@ export function Workspace({
 
   useEffect(() => {
     const c = pixels.current;
-    if (!c || !preview) return;
+    if (!c) return;
+    if (view === "design" && smooth) {
+      // Smooth preview is rendered at zoom × devicePixelRatio, so draw it 1:1.
+      c.width = smooth.width;
+      c.height = smooth.height;
+      const ctx = c.getContext("2d")!;
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawImage(smooth as CanvasImageSource, 0, 0);
+      return;
+    }
+    if (!preview) return;
     c.width = preview.width;
     c.height = preview.height;
     const ctx = c.getContext("2d")!;
@@ -63,7 +78,7 @@ export function Workspace({
       img.data[i * 4 + 3] = preview.data[i] ? 255 : 0;
     }
     ctx.putImageData(img, 0, 0);
-  }, [preview]);
+  }, [preview, smooth, view]);
 
   useEffect(() => {
     const c = overlay.current;
@@ -162,8 +177,12 @@ export function Workspace({
       <canvas
         ref={pixels}
         className="pointer-events-none absolute inset-0"
-        style={{ width: w, height: h, imageRendering: "pixelated" }}
-        aria-label="Print preview"
+        style={{
+          width: w,
+          height: h,
+          imageRendering: view === "design" && smooth ? "auto" : "pixelated",
+        }}
+        aria-label={view === "design" ? "Design preview" : "Print preview"}
       />
       <canvas
         ref={overlay}
@@ -206,3 +225,57 @@ export function Workspace({
 }
 
 export const DEFAULT_ZOOM = Math.round(DOTS_PER_MM); // ~1 screen px per printer dot
+
+/** Key for the workspace overlays; only lists what applies to the current label. */
+export function WorkspaceLegend({ spec }: { spec: LabelSpec }) {
+  const win = printWindow(spec.widthMm);
+  const guide =
+    spec.family === "jewelry"
+      ? "Fold line"
+      : spec.family === "cable"
+        ? "Flag / wrap boundary"
+        : undefined;
+  const items: { swatch: React.ReactNode; text: string }[] = [
+    {
+      swatch: (
+        <span className="inline-block h-3 w-5 rounded-sm border-2 border-neutral-600" />
+      ),
+      text: "Label edge",
+    },
+    {
+      swatch: (
+        <span className="inline-block h-3 w-5 rounded-sm border-2 border-dashed border-sky-500" />
+      ),
+      text: "Printable area",
+    },
+  ];
+  if (guide) {
+    items.push({
+      swatch: (
+        <span className="inline-block w-5 border-t-2 border-dashed border-amber-500" />
+      ),
+      text: guide,
+    });
+  }
+  if (win.width < win.labelDots) {
+    items.push({
+      swatch: (
+        <span className="inline-block h-3 w-5 rounded-sm bg-red-600/15" />
+      ),
+      text: "Beyond printhead",
+    });
+  }
+  return (
+    <ul
+      className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-neutral-600"
+      aria-label="Legend"
+    >
+      {items.map((i) => (
+        <li key={i.text} className="flex items-center gap-1.5">
+          {i.swatch}
+          {i.text}
+        </li>
+      ))}
+    </ul>
+  );
+}

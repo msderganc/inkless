@@ -1,5 +1,6 @@
 "use client";
 
+import { ImagePlus, PencilRuler, Printer, Type } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type BatchSpec, batchValues } from "~/lib/batch";
 import {
@@ -16,7 +17,11 @@ import { DEFAULT_DENSITY, labelTypeFor } from "~/lib/printer/session";
 import { browserEnv } from "~/lib/render/browser-env";
 import { encodeForPrinter } from "~/lib/render/encode";
 import { type MonoBitmap } from "~/lib/render/mono";
-import { renderLabel } from "~/lib/render/render";
+import {
+  type CanvasLike,
+  renderLabel,
+  renderPreview,
+} from "~/lib/render/render";
 import { newTemplate, type Template } from "~/lib/store/store";
 import { useApp, useSessionStatus } from "./app-context";
 import { ElementPanel } from "./ElementPanel";
@@ -24,7 +29,8 @@ import { LabelPicker } from "./LabelPicker";
 import { PrintPanel } from "./PrintPanel";
 import { StatusBar } from "./StatusBar";
 import { TemplatesPanel } from "./TemplatesPanel";
-import { DEFAULT_ZOOM, Workspace } from "./Workspace";
+import { IconButton } from "./IconButton";
+import { DEFAULT_ZOOM, Workspace, WorkspaceLegend } from "./Workspace";
 
 const DEFAULT_LABEL = "rect-50x30";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -46,6 +52,7 @@ export default function Editor() {
   const [view, setView] = useState<"design" | "print">("design");
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [preview, setPreview] = useState<MonoBitmap>();
+  const [smooth, setSmooth] = useState<CanvasLike>();
   const [previewError, setPreviewError] = useState<string>();
   const [lastResult, setLastResult] = useState<string>();
   const [revision, setRevision] = useState(0);
@@ -72,16 +79,30 @@ export default function Editor() {
   useEffect(() => {
     const seq = ++renderSeq.current;
     const t = setTimeout(() => {
-      renderLabel(design, spec, browserEnv, {
-        batchValue: firstValue,
-        offsetDots: settings.offsetDots,
-        view,
-      })
-        .then((r) => {
-          if (seq !== renderSeq.current) return;
-          setPreview(r.label);
-          setPreviewError(undefined);
-        })
+      // Design view: smooth, screen-resolution preview. As printed: the exact 203 DPI dots.
+      const work =
+        view === "design"
+          ? renderPreview(
+              design,
+              spec,
+              browserEnv,
+              zoom * (window.devicePixelRatio || 1),
+              {
+                batchValue: firstValue,
+              },
+            ).then((c) => {
+              if (seq !== renderSeq.current) return;
+              setSmooth(c);
+            })
+          : renderLabel(design, spec, browserEnv, {
+              batchValue: firstValue,
+              offsetDots: settings.offsetDots,
+            }).then((r) => {
+              if (seq !== renderSeq.current) return;
+              setPreview(r.label);
+            });
+      work
+        .then(() => seq === renderSeq.current && setPreviewError(undefined))
         .catch(
           (e: unknown) =>
             seq === renderSeq.current &&
@@ -89,7 +110,7 @@ export default function Editor() {
         );
     }, 80);
     return () => clearTimeout(t);
-  }, [design, spec, firstValue, settings.offsetDots, view]);
+  }, [design, spec, firstValue, settings.offsetDots, view, zoom]);
 
   const updateElement = useCallback((el: DesignElement) => {
     setDesign((d) => ({
@@ -274,20 +295,12 @@ export default function Editor() {
               Add
             </h2>
             <div className="flex gap-2">
-              <button
-                type="button"
-                className="rounded border px-3 py-1.5 text-sm hover:bg-neutral-100"
-                onClick={addText}
-              >
-                + Text
-              </button>
-              <button
-                type="button"
-                className="rounded border px-3 py-1.5 text-sm hover:bg-neutral-100"
+              <IconButton icon={Type} label="Add text" onClick={addText} />
+              <IconButton
+                icon={ImagePlus}
+                label="Add image"
                 onClick={() => imageInput.current?.click()}
-              >
-                + Image
-              </button>
+              />
               <input
                 ref={imageInput}
                 type="file"
@@ -336,22 +349,21 @@ export default function Editor() {
         <main className="flex flex-1 flex-col items-center gap-3 overflow-auto p-6">
           <div className="flex items-center gap-4 text-sm">
             <span className="font-medium">{spec.name}</span>
-            <div
-              className="flex overflow-hidden rounded border border-neutral-300"
-              role="group"
-              aria-label="Preview mode"
-            >
-              {(["design", "print"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={`px-2 py-0.5 ${view === v ? "bg-neutral-800 text-white" : "bg-white hover:bg-neutral-100"}`}
-                  onClick={() => setView(v)}
-                  aria-pressed={view === v}
-                >
-                  {v === "design" ? "Design" : "As printed"}
-                </button>
-              ))}
+            <div className="flex gap-1" role="group" aria-label="Preview mode">
+              <IconButton
+                icon={PencilRuler}
+                label="Design view"
+                size="sm"
+                pressed={view === "design"}
+                onClick={() => setView("design")}
+              />
+              <IconButton
+                icon={Printer}
+                label="As printed (exact printer dots)"
+                size="sm"
+                pressed={view === "print"}
+                onClick={() => setView("print")}
+              />
             </div>
             <label className="flex items-center gap-1">
               Zoom
@@ -368,6 +380,7 @@ export default function Editor() {
             spec={spec}
             design={design}
             preview={preview}
+            smooth={smooth}
             view={view}
             selectedId={selectedId}
             zoom={zoom}
@@ -377,11 +390,13 @@ export default function Editor() {
           {previewError && (
             <p className="text-sm text-red-700">{previewError}</p>
           )}
-          <p className="max-w-md text-center text-xs text-neutral-500">
-            Dashed blue: printable area. Red tint: beyond the printhead. Amber:
-            fold or wrap line.
+          <WorkspaceLegend spec={spec} />
+          <p className="text-xs text-neutral-500">
+            {view === "design"
+              ? "Design view: smooth preview. Switch to As printed to see the exact printer dots."
+              : "As printed: exact 203 DPI output."}
             {firstValue !== null &&
-              ` Preview shows the first batch value “${firstValue}”.`}
+              ` Showing the first batch value "${firstValue}".`}
           </p>
         </main>
 
@@ -389,6 +404,7 @@ export default function Editor() {
           {selected ? (
             <ElementPanel
               element={selected}
+              spec={spec}
               onChange={updateElement}
               onDelete={removeSelected}
               onDuplicate={() =>

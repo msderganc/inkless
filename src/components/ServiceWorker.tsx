@@ -1,6 +1,8 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { IconButton } from "./IconButton";
 
 /** Registers the offline service worker (production builds only) and offers updates. */
 export function ServiceWorker() {
@@ -49,13 +51,13 @@ export function ServiceWorker() {
       role="status"
     >
       A new version is ready.
-      <button
-        type="button"
-        className="rounded bg-sky-500 px-2 py-1 font-medium"
+      <IconButton
+        icon={RefreshCw}
+        label="Update now"
+        variant="primary"
+        size="sm"
         onClick={() => waiting.postMessage("skipWaiting")}
-      >
-        Update
-      </button>
+      />
     </div>
   );
 }

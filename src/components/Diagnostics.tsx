@@ -1,6 +1,14 @@
 "use client";
 
 import { LabelType, type PaperInfo } from "@mmote/niimbluelib";
+import {
+  CircleDashed,
+  RefreshCw,
+  RotateCcw,
+  Ruler,
+  Save,
+  ScrollText,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { CATALOGUE, type LabelOverride } from "~/lib/catalogue";
 import { resolveLabel } from "~/lib/labels";
@@ -12,11 +20,10 @@ import { outlineTest } from "~/lib/render/outline-test";
 import { testPattern } from "~/lib/render/test-pattern";
 import { overrideSchema } from "~/lib/store/store";
 import { useApp, useSessionStatus } from "./app-context";
+import { IconButton } from "./IconButton";
 import { StatusBar } from "./StatusBar";
 
 const box = "space-y-3 rounded border border-neutral-200 bg-white p-4";
-const btn =
-  "rounded border px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50";
 
 export default function Diagnostics() {
   const { session, settings, updateSettings, overrides } = useApp();
@@ -142,24 +149,20 @@ export default function Diagnostics() {
             <p className="text-sm text-neutral-500">No tag read.</p>
           )}
           <div className="flex gap-2">
-            <button
-              type="button"
-              className={btn}
+            <IconButton
+              icon={RefreshCw}
+              label="Re-read roll tag"
               disabled={!ready}
               onClick={() => void session.refreshRfid()}
-            >
-              Re-read tag
-            </button>
-            <button
-              type="button"
-              className={btn}
+            />
+            <IconButton
+              icon={ScrollText}
+              label="Read paper info (not supported by B21S firmware 40.33)"
               disabled={!ready}
               onClick={() =>
                 void session.readPaperInfo().then((p) => setPaper(p ?? null))
               }
-            >
-              Read paper info
-            </button>
+            />
           </div>
           {paper === null && (
             <p className="text-sm text-neutral-500">
@@ -178,9 +181,10 @@ export default function Diagnostics() {
           <p className="text-sm text-neutral-600">
             <strong>Outline test</strong> (any roll): prints the printable-area
             outline, a centre crosshair with 1 mm ticks and the size. It should
-            sit evenly about 1 mm inside the die-cut edge. If it is off to one
-            side, adjust the offset (8 dots ≈ 1 mm); the offset shifts every
-            print.
+            sit evenly about 1 mm inside the die-cut edge. Rolls narrower than
+            the head sit at its left end (verified on 31 mm round). If a print
+            is off to one side, adjust the offset (8 dots ≈ 1 mm); it shifts
+            every print.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <select
@@ -195,28 +199,25 @@ export default function Diagnostics() {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className={btn}
+            <IconButton
+              icon={CircleDashed}
+              label="Print outline test"
+              variant="primary"
               disabled={!ready}
               onClick={() => void printOutline()}
-            >
-              Print outline test
-            </button>
+            />
           </div>
           <p className="text-sm text-neutral-600">
             <strong>Ruler pattern</strong> (50 mm wide rectangular stock only):
             a 48 mm ruler with darkness blocks on a 30 mm label.
           </p>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className={btn}
+            <IconButton
+              icon={Ruler}
+              label="Print ruler pattern"
               disabled={!ready}
               onClick={() => void printPattern()}
-            >
-              Print ruler pattern
-            </button>
+            />
             <label className="flex items-center gap-2 text-sm">
               Offset (dots)
               <input
@@ -328,20 +329,20 @@ function LabelCalibration() {
         aria-label="Override JSON"
       />
       <div className="flex gap-2">
-        <button type="button" className={btn} onClick={() => void save()}>
-          Save
-        </button>
-        <button
-          type="button"
-          className={btn}
+        <IconButton
+          icon={Save}
+          label="Save measured geometry"
+          onClick={() => void save()}
+        />
+        <IconButton
+          icon={RotateCcw}
+          label="Reset to catalogue values"
           onClick={async () => {
             await store.clearOverride(labelId);
             await reloadOverrides();
             setMsg("Reset to catalogue values.");
           }}
-        >
-          Reset
-        </button>
+        />
       </div>
       {msg && <p className="text-xs text-neutral-700">{msg}</p>}
     </section>
