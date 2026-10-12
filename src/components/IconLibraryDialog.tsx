@@ -6,6 +6,7 @@ import {
   categoryLabel,
   DEFAULT_ICON_WEIGHT,
   filterIcons,
+  popularIcons,
   guessCategories,
   type LibraryIcon,
   loadIconCatalog,
@@ -18,6 +19,8 @@ import { useApp } from "./app-context";
 import { Modal } from "./Modal";
 
 const MINE = "mine";
+/** Everyday label icons; the default view. */
+const POPULAR = "popular";
 const LETTERS = ["#", ..."abcdefghijklmnopqrstuvwxyz"];
 const SHOWN = 240;
 
@@ -54,7 +57,7 @@ export function IconLibraryDialog({
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | undefined>(
-    initialMine ? MINE : undefined,
+    initialMine ? MINE : POPULAR,
   );
   const [letter, setLetter] = useState<string>();
   const [weight, setWeight] = useState(DEFAULT_ICON_WEIGHT);
@@ -92,14 +95,19 @@ export function IconLibraryDialog({
   }, [all, saved, store, loadSaved]);
 
   const mine = category === MINE;
-  const results = useMemo(() => {
+  const popular = category === POPULAR;
+  // Searching from Popular searches everything; otherwise within the category.
+  const libraryCategory = popular || mine ? undefined : category;
+  const pool = useMemo(() => {
     if (!all || mine) return [];
-    return searchIcons(filterIcons(all, { category, letter }), query, SHOWN);
-  }, [all, mine, category, letter, query]);
-  const total = useMemo(
-    () => (all && !mine ? filterIcons(all, { category, letter }).length : 0),
-    [all, mine, category, letter],
-  );
+    const base =
+      popular && !query.trim()
+        ? popularIcons(all)
+        : filterIcons(all, { category: libraryCategory });
+    return filterIcons(base, { letter });
+  }, [all, mine, popular, query, libraryCategory, letter]);
+  const results = useMemo(() => searchIcons(pool, query, SHOWN), [pool, query]);
+  const total = pool.length;
   const count = query.trim() ? results.length : total;
 
   const savedShown = useMemo(() => {
@@ -107,12 +115,12 @@ export function IconLibraryDialog({
     return (saved ?? []).filter((i) => {
       const n = i.name.toLowerCase();
       return (
-        (!category || category === MINE || i.categories.includes(category)) &&
+        (!libraryCategory || i.categories.includes(libraryCategory)) &&
         (!q || q.split(/\s+/).every((t) => n.includes(t))) &&
         (!letter || (letter === "#" ? /^[0-9]/.test(n) : n.startsWith(letter)))
       );
     });
-  }, [saved, query, letter, category]);
+  }, [saved, query, letter, libraryCategory]);
 
   const savedButton = (icon: SavedIcon, size = "size-12") => (
     <button
@@ -176,6 +184,14 @@ export function IconLibraryDialog({
           aria-label="Category"
           className="flex flex-wrap gap-1"
         >
+          <button
+            type="button"
+            className={chip(popular)}
+            aria-pressed={popular}
+            onClick={() => setCategory(POPULAR)}
+          >
+            Popular
+          </button>
           <button
             type="button"
             className={chip(!category)}

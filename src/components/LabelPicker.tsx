@@ -1,6 +1,11 @@
 "use client";
 
-import { BookmarkCheck, BookmarkPlus, Check } from "lucide-react";
+import {
+  BookmarkCheck,
+  BookmarkPlus,
+  Check,
+  TriangleAlert,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -130,14 +135,14 @@ export function LabelPicker({
       )}
 
       {spec && !spec.verified && (
-        <p className="text-xs text-amber-700">
-          This size comes from NIIMBOT&apos;s listing and hasn&apos;t been
-          checked on your printer yet. Print the outline test on the{" "}
-          <Link href="/diagnostics/" className="underline">
-            Diagnostics
-          </Link>{" "}
-          page once to confirm it lines up.
-        </p>
+        <Link
+          href="/diagnostics/"
+          className="inline-flex items-center gap-1 rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-100"
+          title="This size comes from NIIMBOT's listing and hasn't been checked on your printer. Print the outline test on the Diagnostics page once to confirm it lines up."
+        >
+          <TriangleAlert size={12} aria-hidden />
+          Size not checked yet: run the outline test
+        </Link>
       )}
 
       {barcode && mapped === null && (

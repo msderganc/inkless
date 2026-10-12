@@ -173,6 +173,7 @@ describe("editor draft", () => {
     template: { id: "t1", name: "Bins" },
     view: "print",
     zoom: 12,
+    zoomFit: false,
     savedAt: 1,
   });
 

@@ -158,6 +158,97 @@ export async function guessIconCategories(text: string): Promise<string[]> {
   }
 }
 
+/** Everyday label icons shown first in the library ("Popular"). Unknown keys are skipped. */
+export const POPULAR_ICON_KEYS = [
+  "Heart",
+  "Star",
+  "House",
+  "Phone",
+  "Mail",
+  "MapPin",
+  "Calendar",
+  "Clock",
+  "Gift",
+  "Cake",
+  "Coffee",
+  "Utensils",
+  "Apple",
+  "Carrot",
+  "Pizza",
+  "Cookie",
+  "Egg",
+  "Milk",
+  "Wine",
+  "Beer",
+  "Leaf",
+  "Flower2",
+  "Sun",
+  "Moon",
+  "Cloud",
+  "Snowflake",
+  "Droplet",
+  "Flame",
+  "Zap",
+  "Lightbulb",
+  "Plug",
+  "Battery",
+  "Wifi",
+  "Wrench",
+  "Hammer",
+  "Scissors",
+  "Paperclip",
+  "Pencil",
+  "Book",
+  "Bookmark",
+  "Tag",
+  "Package",
+  "Box",
+  "Archive",
+  "Folder",
+  "File",
+  "ShoppingCart",
+  "Key",
+  "Lock",
+  "Shield",
+  "TriangleAlert",
+  "Info",
+  "Check",
+  "X",
+  "Plus",
+  "Recycle",
+  "Trash2",
+  "Baby",
+  "Dog",
+  "Cat",
+  "Fish",
+  "Bird",
+  "PawPrint",
+  "Music",
+  "Camera",
+  "Car",
+  "Bike",
+  "Plane",
+  "Smile",
+  "ThumbsUp",
+  "Crown",
+  "Gem",
+  "Pill",
+  "Thermometer",
+  "Shirt",
+  "Sprout",
+  "Trees",
+  "Anchor",
+];
+
+/** The popular icons that exist in this library, in POPULAR_ICON_KEYS order. */
+export function popularIcons(all: LibraryIcon[]): LibraryIcon[] {
+  const byKey = new Map(all.map((i) => [i.key, i]));
+  return POPULAR_ICON_KEYS.flatMap((k) => {
+    const icon = byKey.get(k);
+    return icon ? [icon] : [];
+  });
+}
+
 /** Icons in a category and/or starting with a letter ("#" = digits). */
 export function filterIcons(
   all: LibraryIcon[],

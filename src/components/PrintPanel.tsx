@@ -23,34 +23,36 @@ interface Props {
   density: number;
   onDensity: (n: number) => void;
   usesPlaceholder: boolean;
-  state: string;
-  progress?: { done: number; total: number };
-  onPrint: () => void;
-  onCancel: () => void;
-  lastResult?: string;
 }
 
 const field = "rounded border border-neutral-300 px-2 py-1";
 
-export function PrintPanel(p: Props) {
+type Summary =
+  | { count: number; first?: string | null; last?: string | null }
+  | { error: string };
+
+function summarize(batch: BatchSpec): Summary {
+  try {
+    const v = batchRecords(batch);
+    if (v[0] === null) return { count: 1 };
+    return {
+      count: v.length,
+      first: recordLabel(batch, v[0]!),
+      last: recordLabel(batch, v[v.length - 1]!),
+    };
+  } catch (e) {
+    return { error: e instanceof BatchError ? e.message : String(e) };
+  }
+}
+
+/** Copies, darkness and batch options (the Print tab). */
+export function PrintSettings(p: Props) {
   const [listText, setListText] = useState(
     p.batch.kind === "list" ? p.batch.items.join("\n") : "",
   );
   const [csvError, setCsvError] = useState<string>();
   const csvInput = useRef<HTMLInputElement>(null);
-  const summary = useMemo(() => {
-    try {
-      const v = batchRecords(p.batch);
-      if (v[0] === null) return { count: 1 };
-      return {
-        count: v.length,
-        first: recordLabel(p.batch, v[0]!),
-        last: recordLabel(p.batch, v[v.length - 1]!),
-      };
-    } catch (e) {
-      return { error: e instanceof BatchError ? e.message : String(e) };
-    }
-  }, [p.batch]);
+  const summary = useMemo(() => summarize(p.batch), [p.batch]);
 
   const loadCsv = async (file: File) => {
     setCsvError(undefined);
@@ -73,15 +75,8 @@ export function PrintPanel(p: Props) {
     }
   };
 
-  const printing = p.state === "printing" || p.state === "cancelling";
-  const labels = "count" in summary ? summary.count! * p.copies : 0;
-
   return (
-    <section className="space-y-3">
-      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
-        Print
-      </h2>
-
+    <section className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 text-sm">
         <label className="flex flex-col text-xs text-neutral-600">
           Copies of each
@@ -102,12 +97,18 @@ export function PrintPanel(p: Props) {
           />
         </label>
         <label className="flex flex-col text-xs text-neutral-600">
-          Darkness {p.density}
+          <span>
+            Darkness{" "}
+            <span className="font-medium text-neutral-900 tabular-nums">
+              {p.density} of 5
+            </span>
+          </span>
           <input
             type="range"
             min={1}
             max={5}
             value={p.density}
+            aria-valuetext={`${p.density} of 5`}
             onChange={(e) => p.onDensity(Number(e.target.value))}
           />
         </label>
@@ -221,7 +222,7 @@ export function PrintPanel(p: Props) {
         {"error" in summary ? (
           <p className="text-xs text-red-700">{summary.error}</p>
         ) : (
-          summary.first !== undefined && (
+          summary.first != null && (
             <p className="text-xs text-neutral-500">
               {summary.count} labels: “{summary.first}” … “{summary.last}” (max{" "}
               {MAX_BATCH})
@@ -229,58 +230,99 @@ export function PrintPanel(p: Props) {
           )
         )}
       </fieldset>
+    </section>
+  );
+}
 
-      <div className="flex items-center gap-2">
-        {printing ? (
-          <>
-            <IconButton
-              icon={CircleStop}
-              label={
-                p.state === "cancelling"
-                  ? "Stopping after this label"
-                  : "Cancel (stops after the current label)"
-              }
-              variant="warning"
-              size="lg"
-              onClick={p.onCancel}
-              disabled={p.state === "cancelling"}
-            />
-            {p.state === "cancelling" && (
-              <span className="text-xs text-neutral-600">
-                Stopping after this label…
+interface BarProps {
+  batch: BatchSpec;
+  copies: number;
+  state: string;
+  progress?: { done: number; total: number };
+  onPrint: () => void;
+  onCancel: () => void;
+  onConnect: () => void;
+  lastResult?: string;
+  error?: string;
+}
+
+/** Always-visible Print button with the label count, why it can't print, and progress. */
+export function PrintBar(p: BarProps) {
+  const summary = useMemo(() => summarize(p.batch), [p.batch]);
+  const printing = p.state === "printing" || p.state === "cancelling";
+  const labels = "count" in summary ? summary.count * p.copies : 0;
+  const blocked =
+    "error" in summary
+      ? summary.error
+      : p.state === "disconnected"
+        ? "Connect the printer to print."
+        : p.state === "connecting"
+          ? "Connecting to the printer…"
+          : p.state === "error"
+            ? (p.error ?? "The printer reported a problem.")
+            : undefined;
+
+  return (
+    <div className="space-y-2">
+      {printing ? (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="text-on-accent inline-flex h-10 items-center gap-2 rounded border border-amber-500 bg-amber-500 px-4 font-medium hover:bg-amber-600 disabled:opacity-50"
+            onClick={p.onCancel}
+            disabled={p.state === "cancelling"}
+          >
+            <CircleStop size={18} aria-hidden />
+            {p.state === "cancelling" ? "Stopping…" : "Cancel"}
+          </button>
+          {p.progress && (
+            <div className="flex flex-1 flex-col gap-1">
+              <progress
+                className="h-2 w-full"
+                max={p.progress.total}
+                value={p.progress.done}
+                aria-label="Print progress"
+              />
+              <span className="text-xs text-neutral-600 tabular-nums">
+                {p.progress.done} of {p.progress.total}
               </span>
-            )}
-          </>
-        ) : (
-          <IconButton
-            icon={Printer}
-            label={
-              p.state !== "ready"
-                ? "Print (connect the printer first)"
-                : `Print ${labels} label${labels === 1 ? "" : "s"}`
-            }
-            variant="primary"
-            size="lg"
-            badge={labels > 1 ? String(labels) : undefined}
-            onClick={p.onPrint}
-            disabled={p.state !== "ready" || "error" in summary}
-          />
-        )}
-        {p.progress && printing && (
-          <progress
-            className="h-2 flex-1"
-            max={p.progress.total}
-            value={p.progress.done}
-            aria-label="Print progress"
-          />
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="text-on-accent inline-flex h-11 w-full items-center justify-center gap-2 rounded border border-sky-600 bg-sky-600 px-4 text-base font-semibold hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!!blocked || p.state !== "ready"}
+          onClick={p.onPrint}
+        >
+          <Printer size={20} aria-hidden />
+          Print {labels} label{labels === 1 ? "" : "s"}
+        </button>
+      )}
+      {!printing && blocked && (
+        <p
+          className="flex items-center gap-2 text-xs text-neutral-600"
+          role="status"
+        >
+          <span className="flex-1">{blocked}</span>
+          {p.state === "disconnected" && (
+            <button
+              type="button"
+              className="rounded border border-sky-600 px-2 py-0.5 text-sky-700 hover:bg-sky-50"
+              onClick={p.onConnect}
+            >
+              Connect
+            </button>
+          )}
+        </p>
+      )}
       {p.lastResult && (
         <p className="text-sm text-neutral-700" role="status">
           {p.lastResult}
         </p>
       )}
-    </section>
+    </div>
   );
 }
 

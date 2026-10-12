@@ -368,6 +368,7 @@ async function drawElements(
   now: Date,
 ) {
   for (const el of design.elements) {
+    if (el.hidden) continue;
     switch (el.kind) {
       case "text":
         drawText(ctx, el, record, now, s);

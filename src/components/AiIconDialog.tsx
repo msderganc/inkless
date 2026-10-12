@@ -4,7 +4,9 @@ import {
   Bookmark,
   BookmarkCheck,
   ChartColumn,
+  KeyRound,
   LoaderCircle,
+  LogIn,
   Settings,
   Sparkles,
 } from "lucide-react";
@@ -261,11 +263,18 @@ export function AiIconDialog({
                 ? "Sign in with ChatGPT to generate icons with your plan."
                 : `Add your ${PROVIDER_NAMES[ai.provider]} API key to generate icons.`}
             </span>
-            <IconButton
-              icon={Settings}
-              label="Open AI settings"
+            <button
+              type="button"
+              className="text-on-accent inline-flex items-center gap-1.5 rounded border border-sky-600 bg-sky-600 px-3 py-1.5 text-sm font-medium hover:bg-sky-700"
               onClick={onOpenSettings}
-            />
+            >
+              {usePlan ? (
+                <LogIn size={15} aria-hidden />
+              ) : (
+                <KeyRound size={15} aria-hidden />
+              )}
+              {usePlan ? "Sign in with ChatGPT" : "Add API key"}
+            </button>
             <IconButton
               icon={ChartColumn}
               label="AI usage and cost"

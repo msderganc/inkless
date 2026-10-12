@@ -23,7 +23,10 @@ Built with the T3 stack (Next.js static export, TypeScript, Tailwind). tRPC, a d
 - AI icon generator using Anthropic Claude or OpenAI with your own API key. Icons are generated as bold black-and-white SVG suited to 203 DPI and previewed exactly as they will print. Keys stay in the browser and are never included in backups.
 - Sign in with ChatGPT (OpenAI, Pay with "My ChatGPT plan") bills icon generation to your ChatGPT plan instead of an API key. Sign-in needs the local server running (`npm run serve`); it listens on 127.0.0.1:1455 only to forward OpenAI's sign-in redirect to the app. Image models need an API key.
 - AI usage and cost: the chart button in the AI icon generator shows estimated Anthropic spend (this month and all time) from each response's token counts and Anthropic list prices, plus recent generations. The Anthropic Console is the authoritative bill. The log stays in the browser and isn't backed up.
-- New blank label button (top of the left panel) clears the design and batch but keeps the label size; Undo brings the old design back.
+- Layout: label size, Add tools and saved labels on the left; above the canvas the label name with Save (Ctrl+S), Save as new and New, plus undo, Design / As printed and zoom (fits the window by default); on the right, Design (layers and the selected item) and Print settings tabs, with the Print button always at the bottom.
+- New clears the design and batch but keeps the label size; Undo brings the old design back.
+- Layers: every item on the label, topmost first. Click to select (Shift adds), double-click to rename, move up/down, hide (hidden items don't print) and lock (locked items can't be dragged on the canvas).
+- New items are placed in free space instead of on top of existing ones.
 - Spreadsheet batches: import a CSV and use its columns as `{placeholders}`. `{today}` and `{today+7}` insert dates.
 - Undo and redo (Ctrl+Z, Ctrl+Y), multi-select (Shift+click, Ctrl+A), group alignment, duplicate (Ctrl+D), and snapping to the centre, edges and other items (hold Alt to turn it off).
 

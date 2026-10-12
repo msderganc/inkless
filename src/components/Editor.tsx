@@ -3,23 +3,16 @@
 import {
   ChevronLeft,
   ChevronRight,
-  Circle,
   Copy,
+  CopyPlus,
   FilePlus,
-  Frame,
-  ImagePlus,
-  Minus,
-  PencilRuler,
-  Printer,
+  Maximize,
   Redo2,
-  Shapes,
-  Sparkles,
-  BookmarkCheck,
-  Spline,
-  Square,
+  Save,
   Trash2,
-  Type,
   Undo2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { alignGroup, alignmentArea } from "~/lib/align";
@@ -54,11 +47,22 @@ import { BOX_ALIGN, ElementPanel } from "./ElementPanel";
 import { IconButton } from "./IconButton";
 import { IconLibraryDialog } from "./IconLibraryDialog";
 import { LabelPicker } from "./LabelPicker";
-import { PrintPanel } from "./PrintPanel";
+import { PrintBar, PrintSettings } from "./PrintPanel";
 import { StatusBar } from "./StatusBar";
 import { TemplatesPanel } from "./TemplatesPanel";
 import { useDesignHistory } from "./useDesignHistory";
-import { DEFAULT_ZOOM, Workspace, WorkspaceLegend } from "./Workspace";
+import {
+  ACTUAL_SIZE_ZOOM,
+  DEFAULT_ZOOM,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  Workspace,
+  WorkspaceLegend,
+} from "./Workspace";
+import { type AddTool, AddTools } from "./AddTools";
+import { LayersPanel } from "./LayersPanel";
+import { Tip } from "./Tip";
+import { findFreeSpot } from "~/lib/place";
 
 const DEFAULT_LABEL = "rect-50x30";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -67,8 +71,15 @@ type Dialog =
   "library" | "my-icons" | "ai" | "ai-settings" | "usage" | undefined;
 
 export default function Editor() {
-  const { store, session, settings, updateSettings, overrides, initialDraft } =
-    useApp();
+  const {
+    store,
+    session,
+    settings,
+    updateSettings,
+    overrides,
+    initialDraft,
+    connectPrinter,
+  } = useApp();
   const status = useSessionStatus(session);
   const initialLabel =
     settings.lastLabelId && resolveLabel(settings.lastLabelId, overrides)
@@ -101,7 +112,18 @@ export default function Editor() {
   >(draft?.template);
   const [view, setView] = useState<"design" | "print">(draft?.view ?? "design");
   const [zoom, setZoom] = useState(draft?.zoom ?? DEFAULT_ZOOM);
+  /** Zoom follows the canvas size until the user zooms by hand. */
+  const [zoomFit, setZoomFit] = useState(draft?.zoomFit ?? true);
+  const [fitZoom, setFitZoom] = useState(DEFAULT_ZOOM);
   const [dialog, setDialog] = useState<Dialog>();
+  const [docName, setDocName] = useState(draft?.template?.name ?? "");
+  const [saveMessage, setSaveMessage] = useState<{
+    ok: boolean;
+    text: string;
+  }>();
+  const [tab, setTab] = useState<"design" | "print">("design");
+  const nameInput = useRef<HTMLInputElement>(null);
+  const canvasArea = useRef<HTMLDivElement>(null);
   const [autosaveError, setAutosaveError] = useState<string>();
 
   // Autosave the work in progress so it survives a refresh (debounced; flushed when hidden).
@@ -115,6 +137,7 @@ export default function Editor() {
       template: current,
       view,
       zoom,
+      zoomFit,
       savedAt: Date.now(),
     };
     const t = setTimeout(() => {
@@ -127,7 +150,7 @@ export default function Editor() {
           );
     }, 400);
     return () => clearTimeout(t);
-  }, [store, design, batch, density, copies, current, view, zoom]);
+  }, [store, design, batch, density, copies, current, view, zoom, zoomFit]);
   useEffect(() => {
     const flush = () => {
       if (document.visibilityState === "hidden" && latestDraft.current) {
@@ -179,6 +202,41 @@ export default function Editor() {
     [records.length],
   );
 
+  // Fit: the largest zoom at which the whole label fits the canvas area.
+  useEffect(() => {
+    const el = canvasArea.current;
+    if (!el) return;
+    const measure = () => {
+      const side = isBatch ? 104 : 0; // batch arrows beside the label
+      const w = el.clientWidth - 64 - side;
+      const h = el.clientHeight - 48;
+      const z = Math.min(w / spec.widthMm, h / spec.heightMm);
+      if (Number.isFinite(z) && z > 0)
+        setFitZoom(
+          Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.floor(z * 4) / 4)),
+        );
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [spec.widthMm, spec.heightMm, isBatch]);
+  const shownZoom = zoomFit ? fitZoom : zoom;
+  const zoomBy = (factor: number) => {
+    const next = Math.max(
+      MIN_ZOOM,
+      Math.min(MAX_ZOOM, Math.round(shownZoom * factor * 4) / 4),
+    );
+    setZoom(next);
+    setZoomFit(false);
+  };
+  const zoomPercent = Math.round((shownZoom / ACTUAL_SIZE_ZOOM) * 100);
+
+  // Selecting something shows its settings.
+  useEffect(() => {
+    if (selectedIds.length > 0) setTab("design");
+  }, [selectedIds]);
+
   // Re-render the preview (debounced; stale renders are discarded).
   const renderSeq = useRef(0);
   useEffect(() => {
@@ -191,7 +249,7 @@ export default function Editor() {
               design,
               spec,
               browserEnv,
-              zoom * (window.devicePixelRatio || 1),
+              shownZoom * (window.devicePixelRatio || 1),
               {
                 record: previewRecord,
               },
@@ -213,7 +271,7 @@ export default function Editor() {
         );
     }, 80);
     return () => clearTimeout(t);
-  }, [design, spec, previewRecord, settings.offsetDots, view, zoom]);
+  }, [design, spec, previewRecord, settings.offsetDots, view, shownZoom]);
 
   /** Replace whole elements (alignment, drags). */
   const replaceElements = useCallback(
@@ -272,9 +330,18 @@ export default function Editor() {
       area,
     };
   };
+  /** Like centredBox, but moved off existing items when the centre is taken. */
+  const freeBox = (w: number, h: number) => {
+    const c = centredBox(w, h);
+    const others = design.elements.filter(
+      (e) => !e.hidden && !(e.kind === "shape" && e.shape === "frame"),
+    );
+    const p = findFreeSpot(c.w, c.h, c.area, others);
+    return { ...c, ...p };
+  };
 
   const addText = () => {
-    const b = centredBox(spec.widthMm, 10);
+    const b = freeBox(spec.widthMm, 10);
     addElement(newText(b.x, b.y, b.w, Math.max(4, b.h)));
   };
   const addCurvedText = () => {
@@ -293,7 +360,7 @@ export default function Editor() {
       return;
     }
     const s = Math.min(spec.widthMm, spec.heightMm) * 0.5;
-    const b = centredBox(
+    const b = freeBox(
       shape === "line" ? spec.widthMm * 0.7 : s * 1.4,
       shape === "line" ? 2 : s,
     );
@@ -307,7 +374,7 @@ export default function Editor() {
     weight?: number,
   ) => {
     const size = Math.min(spec.widthMm, spec.heightMm) * 0.55;
-    const b = centredBox(size, size);
+    const b = freeBox(size, size);
     addElement({
       ...newIcon(svg, name, source, b.x, b.y, Math.min(b.w, b.h)),
       libraryKey,
@@ -323,7 +390,7 @@ export default function Editor() {
       return;
     }
     const size = Math.min(spec.widthMm, spec.heightMm) * 0.6;
-    const b = centredBox(size, size);
+    const b = freeBox(size, size);
     addElement({
       id: newId(),
       kind: "image",
@@ -356,7 +423,7 @@ export default function Editor() {
       r.readAsDataURL(file);
     });
     const size = Math.min(spec.widthMm, spec.heightMm) - 4;
-    const b = centredBox(size, size);
+    const b = freeBox(size, size);
     const el: ImageElement = {
       id: newId(),
       kind: "image",
@@ -374,14 +441,22 @@ export default function Editor() {
     addElement(el);
   };
 
-  const removeSelected = useCallback(() => {
-    if (selectedIds.length === 0) return;
-    setDesign((d) => ({
-      ...d,
-      elements: d.elements.filter((e) => !selectedIds.includes(e.id)),
-    }));
-    setSelectedIds([]);
-  }, [selectedIds, setDesign]);
+  const removeIds = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      setDesign((d) => ({
+        ...d,
+        elements: d.elements.filter((e) => !ids.includes(e.id)),
+      }));
+      setSelectedIds((sel) => sel.filter((id) => !ids.includes(id)));
+    },
+    [setDesign],
+  );
+  /** Delete buttons: everything selected (an explicit choice, even if locked). */
+  const removeSelected = useCallback(
+    () => removeIds(selectedIds),
+    [removeIds, selectedIds],
+  );
 
   const duplicateSelected = useCallback(() => {
     if (selected.length === 0) return;
@@ -395,15 +470,33 @@ export default function Editor() {
     setSelectedIds(copies.map((c) => c.id));
   }, [selected, setDesign]);
 
-  const moveSelected = (dir: "up" | "down") =>
+  const reorder = (id: string | undefined, dir: "up" | "down") =>
     setDesign((d) => {
-      const i = d.elements.findIndex((e) => e.id === single?.id);
+      const i = d.elements.findIndex((e) => e.id === id);
       const j = dir === "up" ? i + 1 : i - 1;
       if (i < 0 || j < 0 || j >= d.elements.length) return d;
       const els = [...d.elements];
       [els[i], els[j]] = [els[j]!, els[i]!];
       return { ...d, elements: els };
     });
+  const moveSelected = (dir: "up" | "down") => reorder(single?.id, dir);
+
+  const onAdd = (tool: AddTool) => {
+    switch (tool) {
+      case "text":
+        return addText();
+      case "curved":
+        return addCurvedText();
+      case "image":
+        return imageInput.current?.click();
+      case "library":
+      case "my-icons":
+      case "ai":
+        return setDialog(tool);
+      default:
+        return addShape(tool);
+    }
+  };
 
   const select = useCallback((id: string | undefined, additive?: boolean) => {
     if (!id) setSelectedIds([]);
@@ -421,9 +514,14 @@ export default function Editor() {
       const typing =
         ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) ||
         t.isContentEditable;
-      if (typing || document.querySelector("dialog[open]")) return; // native undo in fields; dialogs own keys
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
+      if (mod && k === "s" && !document.querySelector("dialog[open]")) {
+        e.preventDefault();
+        void saveRef.current(false);
+        return;
+      }
+      if (typing || document.querySelector("dialog[open]")) return; // native undo in fields; dialogs own keys
       if (mod && k === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -432,7 +530,12 @@ export default function Editor() {
         redo();
       } else if (mod && k === "a") {
         e.preventDefault();
-        setSelectedIds(design.elements.map((x) => x.id));
+        // Only what you can see and move.
+        setSelectedIds(
+          design.elements
+            .filter((x) => !x.hidden && !x.locked)
+            .map((x) => x.id),
+        );
       } else if (mod && k === "d") {
         e.preventDefault();
         duplicateSelected();
@@ -441,11 +544,14 @@ export default function Editor() {
         (e.key === "Delete" || e.key === "Backspace")
       ) {
         e.preventDefault();
-        removeSelected();
+        // The keyboard never deletes locked items.
+        removeIds(selected.filter((x) => !x.locked).map((x) => x.id));
       } else if (e.key === "Escape") {
         setSelectedIds([]);
       } else if (selected.length && e.key.startsWith("Arrow")) {
         e.preventDefault();
+        const movable = selected.filter((x) => !x.locked && !x.hidden);
+        if (movable.length === 0) return; // no empty undo steps
         const s = e.shiftKey ? 1 : 0.25;
         const [dx, dy] = {
           ArrowLeft: [-s, 0],
@@ -454,8 +560,8 @@ export default function Editor() {
           ArrowDown: [0, s],
         }[e.key] ?? [0, 0];
         replaceElements(
-          selected.map((x) => ({ ...x, x: x.x + dx!, y: x.y + dy! })),
-          `nudge:${selected.map((x) => x.id).join(",")}`,
+          movable.map((x) => ({ ...x, x: x.x + dx!, y: x.y + dy! })),
+          `nudge:${movable.map((x) => x.id).join(",")}`,
         );
       }
     };
@@ -464,7 +570,7 @@ export default function Editor() {
   }, [
     selected,
     design.elements,
-    removeSelected,
+    removeIds,
     duplicateSelected,
     replaceElements,
     undo,
@@ -521,13 +627,40 @@ export default function Editor() {
     }
   };
 
-  const save = async (name: string, asNew: boolean) => {
-    const base = newTemplate(name, design, batch, density, copies);
-    const t: Template = current && !asNew ? { ...base, id: current.id } : base;
-    await store.saveTemplate(t);
-    setCurrent({ id: t.id, name });
-    setRevision((r) => r + 1);
+  /** Save (over the open label, or as a new one). Needs a name. */
+  const save = async (asNew: boolean) => {
+    const name = docName.trim();
+    if (!name) {
+      setSaveMessage({ ok: false, text: "Give the label a name first." });
+      nameInput.current?.focus();
+      return;
+    }
+    try {
+      const base = newTemplate(name, design, batch, density, copies);
+      const t: Template =
+        current && !asNew ? { ...base, id: current.id } : base;
+      await store.saveTemplate(t);
+      setCurrent({ id: t.id, name });
+      setRevision((r) => r + 1);
+      setSaveMessage({
+        ok: true,
+        text: asNew || !current ? `Saved as “${name}”.` : "Saved.",
+      });
+    } catch (e) {
+      setSaveMessage({
+        ok: false,
+        text: `Couldn't save: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
   };
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  // Success messages fade after a few seconds.
+  useEffect(() => {
+    if (!saveMessage?.ok) return;
+    const t = setTimeout(() => setSaveMessage(undefined), 3000);
+    return () => clearTimeout(t);
+  }, [saveMessage]);
 
   const load = (t: Template) => {
     if (!resolveLabel(t.design.labelId, overrides)) {
@@ -541,6 +674,8 @@ export default function Editor() {
     setDensity(t.density);
     setCopies(t.copies);
     setCurrent({ id: t.id, name: t.name });
+    setDocName(t.name);
+    setSaveMessage(undefined);
     setSelectedIds([]);
     changeLabel(t.design.labelId);
   };
@@ -559,83 +694,49 @@ export default function Editor() {
       repeatInWrap: design.repeatInWrap,
     });
     setBatch({ kind: "none" });
+    setLoads((n) => n + 1);
     setCurrent(undefined);
+    setDocName("");
+    setSaveMessage(undefined);
     setSelectedIds([]);
     setLastResult(undefined);
   };
 
   const shownLabel = recordLabel(batch, previewRecord);
 
+  const tabButton = (t: "design" | "print", label: string) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === t}
+      className={`flex-1 border-b-2 px-3 py-2 text-sm font-medium ${
+        tab === t
+          ? "border-sky-600 text-sky-700"
+          : "border-transparent text-neutral-600 hover:text-neutral-900"
+      }`}
+      onClick={() => setTab(t)}
+    >
+      {label}
+    </button>
+  );
+  const segment = (active: boolean) =>
+    `px-3 py-1 text-sm ${
+      active
+        ? "bg-neutral-800 text-white"
+        : "bg-white text-neutral-700 hover:bg-neutral-100"
+    }`;
+
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-100 text-neutral-900">
+    <div className="flex min-h-screen flex-col bg-neutral-100 text-neutral-900 lg:h-screen lg:min-h-0">
       <StatusBar page="editor" />
-      <div className="flex flex-1 flex-col lg:flex-row">
-        <aside className="space-y-6 border-neutral-200 bg-white p-4 lg:w-72 lg:border-r">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-neutral-600">
-              {current ? current.name : "Untitled label"}
-            </span>
-            <IconButton
-              icon={FilePlus}
-              label="New blank label"
-              onClick={newLabel}
-            />
-          </div>
+      <div className="flex flex-1 flex-col lg:min-h-0 lg:flex-row">
+        <aside className="space-y-6 border-neutral-200 bg-white p-4 lg:w-72 lg:overflow-y-auto lg:border-r">
           <LabelPicker labelId={design.labelId} onChange={changeLabel} />
           <section className="space-y-2">
             <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
               Add
             </h2>
-            <div className="flex flex-wrap gap-1.5">
-              <IconButton icon={Type} label="Add text" onClick={addText} />
-              <IconButton
-                icon={Spline}
-                label="Add curved text"
-                onClick={addCurvedText}
-              />
-              <IconButton
-                icon={ImagePlus}
-                label="Add image"
-                onClick={() => imageInput.current?.click()}
-              />
-              <IconButton
-                icon={Shapes}
-                label="Icon library"
-                onClick={() => setDialog("library")}
-              />
-              <IconButton
-                icon={BookmarkCheck}
-                label="My icons (saved)"
-                onClick={() => setDialog("my-icons")}
-              />
-              <IconButton
-                icon={Sparkles}
-                label="AI icon generator"
-                onClick={() => setDialog("ai")}
-              />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <IconButton
-                icon={Square}
-                label="Add rectangle"
-                onClick={() => addShape("rect")}
-              />
-              <IconButton
-                icon={Circle}
-                label="Add circle / ellipse"
-                onClick={() => addShape("ellipse")}
-              />
-              <IconButton
-                icon={Minus}
-                label="Add line"
-                onClick={() => addShape("line")}
-              />
-              <IconButton
-                icon={Frame}
-                label="Add border (follows the label shape)"
-                onClick={() => addShape("frame")}
-              />
-            </div>
+            <AddTools onAdd={onAdd} />
             <input
               ref={imageInput}
               type="file"
@@ -673,60 +774,160 @@ export default function Editor() {
           </section>
           <TemplatesPanel
             current={current}
-            onSave={save}
             onLoad={load}
-            onDeleted={(id) => current?.id === id && setCurrent(undefined)}
+            onDeleted={(id) => {
+              if (current?.id === id) setCurrent(undefined);
+            }}
             revision={revision}
           />
         </aside>
 
-        <main className="flex flex-1 flex-col items-center gap-3 overflow-auto p-6">
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
-            <span className="font-medium">{spec.name}</span>
-            <div className="flex gap-1" role="group" aria-label="Undo and redo">
-              <IconButton
-                icon={Undo2}
-                label="Undo (Ctrl+Z)"
-                size="sm"
-                disabled={!canUndo}
-                onClick={undo}
-              />
-              <IconButton
-                icon={Redo2}
-                label="Redo (Ctrl+Y)"
-                size="sm"
-                disabled={!canRedo}
-                onClick={redo}
-              />
+        <main className="flex min-w-0 flex-1 flex-col lg:min-h-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 bg-white px-4 py-2">
+            <input
+              ref={nameInput}
+              className="w-56 min-w-0 rounded border border-neutral-300 px-2 py-1 text-sm font-medium"
+              placeholder="Untitled label"
+              aria-label="Label name"
+              maxLength={200}
+              value={docName}
+              onChange={(e) => setDocName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void save(false);
+              }}
+            />
+            <button
+              type="button"
+              className="text-on-accent inline-flex items-center gap-1.5 rounded border border-sky-600 bg-sky-600 px-3 py-1 text-sm font-medium hover:bg-sky-700"
+              title={
+                current
+                  ? `Save changes to "${current.name}" (Ctrl+S)`
+                  : "Save this label (Ctrl+S)"
+              }
+              onClick={() => void save(false)}
+            >
+              <Save size={15} aria-hidden />
+              Save
+            </button>
+            {current && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100"
+                title="Save a copy under the name above"
+                onClick={() => void save(true)}
+              >
+                <CopyPlus size={15} aria-hidden />
+                Save as new
+              </button>
+            )}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100"
+              title="Start a blank label of the same size"
+              onClick={newLabel}
+            >
+              <FilePlus size={15} aria-hidden />
+              New
+            </button>
+            {saveMessage && (
+              <span
+                role="status"
+                className={`text-xs ${saveMessage.ok ? "text-emerald-700" : "text-red-700"}`}
+              >
+                {saveMessage.text}
+              </span>
+            )}
+
+            <div className="ml-auto flex flex-wrap items-center gap-3">
+              <div
+                className="flex gap-1"
+                role="group"
+                aria-label="Undo and redo"
+              >
+                <IconButton
+                  icon={Undo2}
+                  label="Undo (Ctrl+Z)"
+                  size="sm"
+                  disabled={!canUndo}
+                  onClick={undo}
+                />
+                <IconButton
+                  icon={Redo2}
+                  label="Redo (Ctrl+Y)"
+                  size="sm"
+                  disabled={!canRedo}
+                  onClick={redo}
+                />
+              </div>
+              <div
+                className="flex overflow-hidden rounded border border-neutral-300"
+                role="group"
+                aria-label="Preview mode"
+              >
+                <button
+                  type="button"
+                  aria-pressed={view === "design"}
+                  className={segment(view === "design")}
+                  title="Smooth preview for designing"
+                  onClick={() => setView("design")}
+                >
+                  Design
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={view === "print"}
+                  className={segment(view === "print")}
+                  title="The exact printer dots (203 DPI)"
+                  onClick={() => setView("print")}
+                >
+                  As printed
+                </button>
+              </div>
+              <div
+                className="flex items-center gap-1"
+                role="group"
+                aria-label="Zoom"
+              >
+                <IconButton
+                  icon={ZoomOut}
+                  label="Zoom out"
+                  size="sm"
+                  disabled={shownZoom <= MIN_ZOOM}
+                  onClick={() => zoomBy(1 / 1.25)}
+                />
+                <button
+                  type="button"
+                  className="w-14 rounded px-1 py-1 text-center text-sm tabular-nums hover:bg-neutral-100"
+                  title="Actual size (100%)"
+                  onClick={() => {
+                    setZoom(ACTUAL_SIZE_ZOOM);
+                    setZoomFit(false);
+                  }}
+                >
+                  {zoomPercent}%
+                </button>
+                <IconButton
+                  icon={ZoomIn}
+                  label="Zoom in"
+                  size="sm"
+                  disabled={shownZoom >= MAX_ZOOM}
+                  onClick={() => zoomBy(1.25)}
+                />
+                <IconButton
+                  icon={Maximize}
+                  label="Fit to window"
+                  size="sm"
+                  pressed={zoomFit}
+                  onClick={() => setZoomFit(true)}
+                />
+              </div>
             </div>
-            <div className="flex gap-1" role="group" aria-label="Preview mode">
-              <IconButton
-                icon={PencilRuler}
-                label="Design view"
-                size="sm"
-                pressed={view === "design"}
-                onClick={() => setView("design")}
-              />
-              <IconButton
-                icon={Printer}
-                label="As printed (exact printer dots)"
-                size="sm"
-                pressed={view === "print"}
-                onClick={() => setView("print")}
-              />
-            </div>
-            <label className="flex items-center gap-1">
-              Zoom
-              <input
-                type="range"
-                min={4}
-                max={20}
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-              />
-            </label>
           </div>
-          <div className="flex items-center gap-3">
+
+          <div
+            ref={canvasArea}
+            className="flex min-h-[50vh] flex-1 items-center justify-center gap-3 overflow-auto p-6 lg:min-h-0"
+          >
             {isBatch && (
               <IconButton
                 icon={ChevronLeft}
@@ -735,18 +936,20 @@ export default function Editor() {
                 onClick={() => step(-1)}
               />
             )}
-            <Workspace
-              spec={spec}
-              design={design}
-              preview={preview}
-              smooth={smooth}
-              view={view}
-              selectedIds={selectedIds}
-              zoom={zoom}
-              onSelect={select}
-              onChange={onWorkspaceChange}
-              onGestureEnd={seal}
-            />
+            <div className="m-auto">
+              <Workspace
+                spec={spec}
+                design={design}
+                preview={preview}
+                smooth={smooth}
+                view={view}
+                selectedIds={selectedIds}
+                zoom={shownZoom}
+                onSelect={select}
+                onChange={onWorkspaceChange}
+                onGestureEnd={seal}
+              />
+            </div>
             {isBatch && (
               <IconButton
                 icon={ChevronRight}
@@ -756,105 +959,154 @@ export default function Editor() {
               />
             )}
           </div>
-          {isBatch && (
-            <p className="text-sm font-medium" aria-live="polite">
-              Label {shownIndex + 1} of {records.length}
-              {shownLabel !== null && (
-                <span className="font-normal text-neutral-500">
-                  {" "}
-                  · &ldquo;{shownLabel}&rdquo;
-                </span>
-              )}
-            </p>
-          )}
-          {autosaveError && (
-            <p className="text-sm text-red-700" role="alert">
-              Your work isn&apos;t being saved: {autosaveError}
-            </p>
-          )}
-          {previewError && (
-            <p className="text-sm text-red-700">{previewError}</p>
-          )}
-          <WorkspaceLegend spec={spec} />
-          <p className="text-xs text-neutral-500">
-            {view === "design"
-              ? "Design view: smooth preview. Shift-click to select several; drag snaps to centre and edges (hold Alt to turn snapping off)."
-              : "As printed: exact 203 DPI output."}
-          </p>
+
+          <div className="flex flex-col items-center gap-2 px-4 pb-4">
+            {isBatch && (
+              <p className="text-sm font-medium" aria-live="polite">
+                Label {shownIndex + 1} of {records.length}
+                {shownLabel !== null && (
+                  <span className="font-normal text-neutral-500">
+                    {" "}
+                    · &ldquo;{shownLabel}&rdquo;
+                  </span>
+                )}
+              </p>
+            )}
+            {autosaveError && (
+              <p className="text-sm text-red-700" role="alert">
+                Your work isn&apos;t being saved: {autosaveError}
+              </p>
+            )}
+            {previewError && (
+              <p className="text-sm text-red-700">{previewError}</p>
+            )}
+            <WorkspaceLegend spec={spec} />
+            {view === "design" ? (
+              <Tip id="canvas-basics">
+                Drag items to move them; they snap to the centre and edges (hold
+                Alt to place freely). Shift-click selects several. Arrow keys
+                nudge (Shift for 1 mm). Ctrl+S saves.
+              </Tip>
+            ) : (
+              <p className="text-xs text-neutral-500">
+                Showing the exact printer dots (203 DPI). Switch to Design to
+                edit.
+              </p>
+            )}
+          </div>
         </main>
 
-        <aside className="space-y-6 border-neutral-200 bg-white p-4 lg:w-80 lg:border-l">
-          {single ? (
-            <ElementPanel
-              element={single}
-              spec={spec}
-              onChange={updateElement}
-              onPatch={patchElement}
-              onDelete={removeSelected}
-              onDuplicate={duplicateSelected}
-              onMove={moveSelected}
+        <aside className="flex flex-col border-neutral-200 bg-white lg:min-h-0 lg:w-80 lg:border-l">
+          <div className="flex border-b border-neutral-200" role="tablist">
+            {tabButton("design", "Design")}
+            {tabButton("print", "Print settings")}
+          </div>
+          <div className="flex-1 space-y-6 p-4 lg:min-h-0 lg:overflow-y-auto">
+            {tab === "design" ? (
+              <>
+                <section className="space-y-2">
+                  <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+                    Layers
+                  </h2>
+                  <LayersPanel
+                    elements={design.elements}
+                    selectedIds={selectedIds}
+                    onSelect={(id, additive) => select(id, additive)}
+                    onPatch={patchElement}
+                    onReorder={reorder}
+                  />
+                </section>
+                {single ? (
+                  <ElementPanel
+                    element={single}
+                    spec={spec}
+                    onChange={updateElement}
+                    onPatch={patchElement}
+                    onDelete={removeSelected}
+                    onDuplicate={duplicateSelected}
+                    onMove={moveSelected}
+                  />
+                ) : selected.length > 1 ? (
+                  <section className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+                        {selected.length} items
+                      </h2>
+                      <div className="flex gap-1">
+                        <IconButton
+                          icon={Copy}
+                          label="Duplicate all"
+                          size="sm"
+                          onClick={duplicateSelected}
+                        />
+                        <IconButton
+                          icon={Trash2}
+                          label="Delete all"
+                          size="sm"
+                          variant="danger"
+                          onClick={removeSelected}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-neutral-600">Align as a group</p>
+                    <div
+                      className="flex flex-wrap gap-1"
+                      role="group"
+                      aria-label="Align group on label"
+                    >
+                      {BOX_ALIGN.map((a) => (
+                        <IconButton
+                          key={a.mode}
+                          icon={a.icon}
+                          label={a.label}
+                          size="sm"
+                          onClick={() =>
+                            replaceElements(
+                              alignGroup(
+                                selected.filter((x) => !x.locked && !x.hidden),
+                                spec,
+                                a.mode,
+                              ),
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : (
+                  design.elements.length > 0 && (
+                    <p className="text-sm text-neutral-500">
+                      Select an item on the label or in Layers to edit it.
+                    </p>
+                  )
+                )}
+              </>
+            ) : (
+              <PrintSettings
+                key={loads}
+                batch={batch}
+                onBatch={setBatch}
+                copies={copies}
+                onCopies={setCopies}
+                density={density}
+                onDensity={setDensity}
+                usesPlaceholder={designUsesBatch(design)}
+              />
+            )}
+          </div>
+          <div className="sticky bottom-0 border-t border-neutral-200 bg-white p-4">
+            <PrintBar
+              batch={batch}
+              copies={copies}
+              state={status.state}
+              progress={status.progress}
+              error={status.error}
+              onPrint={() => void print()}
+              onCancel={() => void session.cancel()}
+              onConnect={() => void connectPrinter()}
+              lastResult={lastResult}
             />
-          ) : selected.length > 1 ? (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
-                  {selected.length} items
-                </h2>
-                <div className="flex gap-1">
-                  <IconButton
-                    icon={Copy}
-                    label="Duplicate all"
-                    size="sm"
-                    onClick={duplicateSelected}
-                  />
-                  <IconButton
-                    icon={Trash2}
-                    label="Delete all"
-                    size="sm"
-                    variant="danger"
-                    onClick={removeSelected}
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-neutral-600">Align as a group</p>
-              <div
-                className="flex flex-wrap gap-1"
-                role="group"
-                aria-label="Align group on label"
-              >
-                {BOX_ALIGN.map((a) => (
-                  <IconButton
-                    key={a.mode}
-                    icon={a.icon}
-                    label={a.label}
-                    size="sm"
-                    onClick={() =>
-                      replaceElements(alignGroup(selected, spec, a.mode))
-                    }
-                  />
-                ))}
-              </div>
-            </section>
-          ) : (
-            <p className="text-sm text-neutral-500">
-              Select an item on the label to edit it.
-            </p>
-          )}
-          <PrintPanel
-            key={loads}
-            batch={batch}
-            onBatch={setBatch}
-            copies={copies}
-            onCopies={setCopies}
-            density={density}
-            onDensity={setDensity}
-            usesPlaceholder={designUsesBatch(design)}
-            state={status.state}
-            progress={status.progress}
-            onPrint={() => void print()}
-            onCancel={() => void session.cancel()}
-            lastResult={lastResult}
-          />
+          </div>
         </aside>
       </div>
 

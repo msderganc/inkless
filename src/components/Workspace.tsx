@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { type LabelSpec } from "~/lib/catalogue";
-import { type Design, type DesignElement } from "~/lib/design";
+import { type Design, type DesignElement, elementTitle } from "~/lib/design";
 import { DOTS_PER_MM, dotsToMm, printWindow } from "~/lib/geometry";
 import { type MonoBitmap } from "~/lib/render/mono";
 import { type Box, boxLines, snapMove, unionBox } from "~/lib/snap";
@@ -41,18 +41,8 @@ type Drag = {
   origs: DesignElement[];
 };
 
-function elementLabel(el: DesignElement): string {
-  switch (el.kind) {
-    case "text":
-      return `Text: ${el.text}`;
-    case "image":
-      return "Image";
-    case "shape":
-      return `Shape: ${el.shape}`;
-    case "icon":
-      return `Icon: ${el.name}`;
-  }
-}
+const elementLabel = (el: DesignElement) =>
+  `${el.kind[0]!.toUpperCase()}${el.kind.slice(1)}: ${elementTitle(el)}`;
 
 /** Lines to snap to: label centre, printable-area edges, other elements' edges and centres. */
 function snapTargets(spec: LabelSpec, others: DesignElement[]) {
@@ -194,7 +184,7 @@ export function Workspace({
         const ids = new Set(drag.origs.map((o) => o.id));
         const t = snapTargets(
           spec,
-          design.elements.filter((el) => !ids.has(el.id)),
+          design.elements.filter((el) => !ids.has(el.id) && !el.hidden),
         );
         const snapped = snapMove(moved, t.xs, t.ys);
         fx = snapped.x;
@@ -235,10 +225,12 @@ export function Workspace({
       onSelect(el.id, true); // toggle in the multi-selection; no drag
       return;
     }
-    // Dragging an already-selected element moves the whole selection.
+    // Dragging an already-selected element moves the whole selection (locked ones stay put).
     const group =
       mode === "move" && selectedIds.includes(el.id)
-        ? design.elements.filter((x) => selectedIds.includes(x.id))
+        ? design.elements.filter(
+            (x) => selectedIds.includes(x.id) && !x.locked && !x.hidden,
+          )
         : [el];
     if (!selectedIds.includes(el.id)) onSelect(el.id);
     setDrag({
@@ -279,6 +271,7 @@ export function Workspace({
       />
       {view === "design" &&
         design.elements.map((el) => {
+          if (el.hidden) return null;
           const selected = selectedIds.includes(el.id);
           const single = selected && selectedIds.length === 1;
           return (
@@ -288,7 +281,7 @@ export function Workspace({
               tabIndex={0}
               aria-label={elementLabel(el)}
               aria-pressed={selected}
-              className={`absolute cursor-move ${selected ? "outline-2 outline-sky-500" : "outline-1 outline-transparent hover:outline-neutral-400"} outline-dashed`}
+              className={`absolute ${el.locked ? "pointer-events-none" : "cursor-move"} ${selected ? "outline-2 outline-sky-500" : "outline-1 outline-transparent hover:outline-neutral-400"} outline-dashed`}
               style={{
                 left: el.x * zoom,
                 top: el.y * zoom,
@@ -298,7 +291,7 @@ export function Workspace({
               onPointerDown={(e) => startDrag(e, el, "move")}
               onFocus={() => !selected && onSelect(el.id)}
             >
-              {single && (
+              {single && !el.locked && (
                 <span
                   className="absolute -right-1.5 -bottom-1.5 size-3 cursor-se-resize rounded-sm bg-sky-500"
                   onPointerDown={(e) => startDrag(e, el, "resize")}
@@ -329,6 +322,10 @@ export function Workspace({
 }
 
 export const DEFAULT_ZOOM = Math.round(DOTS_PER_MM); // ~1 screen px per printer dot
+export const MIN_ZOOM = 2;
+export const MAX_ZOOM = 40;
+/** Screen pixels per mm at 100% (CSS: 96 px per inch). */
+export const ACTUAL_SIZE_ZOOM = 96 / 25.4;
 
 /** Key for the workspace overlays; only lists what applies to the current label. */
 export function WorkspaceLegend({ spec }: { spec: LabelSpec }) {

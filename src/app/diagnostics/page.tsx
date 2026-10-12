@@ -8,7 +8,7 @@ const Diagnostics = dynamic(() => import("~/components/Diagnostics"), {
   ssr: false,
   loading: () => (
     <LoadingStep
-      step="Loading the editor code"
+      step="Loading diagnostics"
       hint="The app files may not have downloaded. Reload; if it persists, the service worker cache may be stale."
     />
   ),

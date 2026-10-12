@@ -6,6 +6,8 @@ import {
   categoryLabel,
   filterIcons,
   guessCategories,
+  popularIcons,
+  POPULAR_ICON_KEYS,
   iconDisplayName,
   loadIconCatalog,
   lucideToSvg,
@@ -114,6 +116,10 @@ describe("icon library helpers", () => {
     expect(guessCategories(icons, "sleeping cat")).toContain("animals");
     expect(guessCategories(icons, "coffee cup")).toContain("food-beverage");
     expect(guessCategories(icons, "xq zz")).toEqual([]);
+    // Nearly all popular icons exist (keys survive Lucide upgrades).
+    expect(popularIcons(icons).length).toBeGreaterThanOrEqual(
+      POPULAR_ICON_KEYS.length - 3,
+    );
     // The list in the AI prompt matches the library's.
     expect([...ICON_CATEGORIES]).toEqual(categories);
   });
@@ -129,5 +135,13 @@ describe("designUsesBatch", () => {
       designUsesBatch(d("{today} {today+7} {today - 3} {TODAY + 1}")),
     ).toBe(false);
     expect(designUsesBatch(d("{name} {today}"))).toBe(true);
+  });
+
+  it("ignores hidden text (it isn't printed)", () => {
+    const design = {
+      ...emptyDesign("x"),
+      elements: [{ ...newText(0, 0, 5, 5), text: "{n}", hidden: true }],
+    };
+    expect(designUsesBatch(design)).toBe(false);
   });
 });

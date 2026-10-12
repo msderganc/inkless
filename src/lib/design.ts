@@ -24,6 +24,12 @@ const box = {
   w: z.number().positive().max(MAX_ELEMENT_MM),
   h: z.number().positive().max(MAX_ELEMENT_MM),
   rotation: rotationSchema,
+  /** Optional name shown in the layers list. */
+  name: z.string().max(60).optional(),
+  /** Hidden elements are neither shown nor printed. */
+  hidden: z.boolean().optional(),
+  /** Locked elements can't be dragged or selected on the canvas (use the layers list). */
+  locked: z.boolean().optional(),
 };
 
 export const textElementSchema = z.object({
@@ -205,8 +211,37 @@ export function designUsesBatch(design: Design): boolean {
   return design.elements.some(
     (e) =>
       e.kind === "text" &&
+      !e.hidden &&
       [...e.text.matchAll(PLACEHOLDER_RE)].some(
         (m) => !TODAY_RE.test(m[1]!.trim()),
       ),
   );
+}
+
+const SHAPE_NAMES: Record<ShapeElement["shape"], string> = {
+  rect: "Rectangle",
+  ellipse: "Ellipse",
+  line: "Line",
+  frame: "Border",
+};
+
+/** Name shown in the layers list: the user's name, else something descriptive. */
+export function elementTitle(el: DesignElement): string {
+  if (el.kind !== "icon" && el.name?.trim()) return el.name.trim();
+  switch (el.kind) {
+    case "text": {
+      const first = el.text.split("\n")[0]?.trim() ?? "";
+      return first
+        ? first.length > 30
+          ? `${first.slice(0, 29)}…`
+          : first
+        : "Text";
+    }
+    case "icon":
+      return el.name.trim() || "Icon";
+    case "image":
+      return "Image";
+    case "shape":
+      return SHAPE_NAMES[el.shape];
+  }
 }

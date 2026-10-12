@@ -168,6 +168,8 @@ export const draftSchema = z.object({
   template: z.object({ id: z.string(), name: z.string() }).optional(),
   view: z.enum(["design", "print"]),
   zoom: z.number().min(1).max(40),
+  /** Zoom follows the window size (Fit). */
+  zoomFit: z.boolean().default(true),
   savedAt: z.number().int(),
 });
 export type Draft = z.infer<typeof draftSchema>;

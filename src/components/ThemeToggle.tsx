@@ -8,7 +8,6 @@ import {
   saveTheme,
   type ThemeChoice,
 } from "~/lib/theme";
-import { IconButton } from "./IconButton";
 
 const NEXT: Record<ThemeChoice, ThemeChoice> = {
   system: "light",
@@ -16,6 +15,7 @@ const NEXT: Record<ThemeChoice, ThemeChoice> = {
   dark: "system",
 };
 const ICON = { system: Monitor, light: Sun, dark: Moon } as const;
+const SHORT = { system: "Auto", light: "Light", dark: "Dark" } as const;
 const TEXT = {
   system: "Theme: follow Windows",
   light: "Theme: light",
@@ -34,16 +34,21 @@ export function ThemeToggle() {
     return () => mq.removeEventListener("change", onSystemChange);
   }, []);
 
+  const Icon = ICON[choice];
   return (
-    <IconButton
-      icon={ICON[choice]}
-      label={`${TEXT[choice]} (click to change)`}
-      size="sm"
+    <button
+      type="button"
+      title={`${TEXT[choice]} (click to change)`}
+      aria-label={`${TEXT[choice]} (click to change)`}
+      className="inline-flex h-7 items-center gap-1.5 rounded border border-neutral-300 px-2 text-xs text-neutral-700 hover:bg-neutral-100"
       onClick={() => {
         const next = NEXT[choice];
         saveTheme(next);
         setChoice(next);
       }}
-    />
+    >
+      <Icon size={14} aria-hidden />
+      {SHORT[choice]}
+    </button>
   );
 }
