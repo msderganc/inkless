@@ -187,12 +187,19 @@ export class Store {
     });
   }
 
-  /** AI settings, including API keys. Stored only in this browser; not exported. */
   /** "Sign in with ChatGPT" tokens (created with a fresh host id if none yet). */
   async getChatgptAuth(): Promise<ChatgptAuth> {
     const row = await this.db.get("secrets", "chatgpt");
     const parsed = chatgptAuthSchema.safeParse(row?.value);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) {
+      // Early builds used a non-URN host id, which OpenAI rejects. Nothing was ever
+      // registered with it, so replace it.
+      if (parsed.data.hostId.startsWith("urn:uuid:") || parsed.data.clientId)
+        return parsed.data;
+      const fixed = { ...parsed.data, hostId: newChatgptAuth().hostId };
+      await this.saveChatgptAuth(fixed);
+      return fixed;
+    }
     const fresh = newChatgptAuth();
     await this.saveChatgptAuth(fresh);
     return fresh;
@@ -241,6 +248,7 @@ export class Store {
     await this.db.clear("usage");
   }
 
+  /** AI settings, including API keys. Stored only in this browser; not exported. */
   async getAiSettings(): Promise<AiSettings> {
     const row = await this.db.get("secrets", "ai");
     const parsed = aiSettingsSchema.safeParse(row?.value);

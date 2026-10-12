@@ -84,8 +84,16 @@ describe("AI settings", () => {
     expect(backup).not.toContain("sk-openai-secret");
   });
 
+  it("replaces an old-format host id that was never registered", async () => {
+    await store.saveChatgptAuth({ hostId: "abcdefghijkl", scopes: [] });
+    expect((await store.getChatgptAuth()).hostId).toMatch(
+      /^urn:uuid:[0-9a-f-]{36}$/,
+    );
+  });
+
   it("keeps the ChatGPT sign-in local and out of backups", async () => {
     const fresh = await store.getChatgptAuth();
+    expect(fresh.hostId).toMatch(/^urn:uuid:[0-9a-f-]{36}$/);
     expect(fresh.hostId.length).toBeGreaterThanOrEqual(8);
     expect((await store.getChatgptAuth()).hostId).toBe(fresh.hostId);
     await store.saveChatgptAuth({

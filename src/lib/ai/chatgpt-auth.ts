@@ -104,6 +104,7 @@ export async function buildAuthorizeUrl(
     ext_agent_host_id: auth.hostId,
   });
   if (firstTime) params.set("agent_name_hint", APP_NAME);
+  if (auth.idToken) params.set("id_token_hint", auth.idToken);
   if (auth.email) params.set("login_hint", auth.email);
   return `${AUTHORIZE_URL}?${params.toString()}`;
 }
@@ -307,5 +308,6 @@ export async function signOut(
 }
 
 export function newChatgptAuth(): ChatgptAuth {
-  return { hostId: randomToken(18), scopes: [] };
+  // OpenAI expects a URN UUID (e.g. "urn:uuid:…"), stable per installation.
+  return { hostId: `urn:uuid:${crypto.randomUUID()}`, scopes: [] };
 }

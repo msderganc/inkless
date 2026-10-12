@@ -57,6 +57,7 @@ const signedIn = (over: Partial<ChatgptAuth> = {}): ChatgptAuth => ({
   expiresAt: NOW + 3600_000,
   scopes: SCOPES.split(" "),
   email: "me@example.com",
+  idToken: "idt",
   ...over,
 });
 
@@ -101,6 +102,7 @@ describe("buildAuthorizeUrl", () => {
     expect(p.get("client_id")).toBe("oaiapp_abc");
     expect(p.get("agent_name_hint")).toBeNull();
     expect(p.get("login_hint")).toBe("me@example.com");
+    expect(p.get("id_token_hint")).toBe("idt");
     expect(p.get("ext_agent_host_id")).toBe("host-123456");
   });
 });
