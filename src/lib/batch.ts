@@ -1,9 +1,12 @@
 import { z } from "zod";
-import { PLACEHOLDER_RE } from "./design";
+import { PLACEHOLDER_RE, TODAY_RE } from "./design";
 
 /** Upper bound on labels in one batch job (bounded queue requirement). */
 export const MAX_BATCH = 500;
 export const MAX_CSV_COLUMNS = 50;
+export const MAX_FILE_NAME_CHARS = 200;
+/** Longest cell / list item (matches the schema below). */
+export const MAX_CELL_CHARS = 500;
 
 export const batchSpecSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("none") }),
@@ -17,13 +20,16 @@ export const batchSpecSchema = z.discriminatedUnion("kind", [
     prefix: z.string().max(50),
     suffix: z.string().max(50),
   }),
-  z.object({ kind: z.literal("list"), items: z.array(z.string().max(500)) }),
+  z.object({
+    kind: z.literal("list"),
+    items: z.array(z.string().max(MAX_CELL_CHARS)),
+  }),
   /** Spreadsheet rows: each column is a {placeholder}; each row is one label. */
   z.object({
     kind: z.literal("csv"),
-    fileName: z.string().max(200),
+    fileName: z.string().max(MAX_FILE_NAME_CHARS),
     columns: z.array(z.string().min(1).max(60)).min(1).max(MAX_CSV_COLUMNS),
-    rows: z.array(z.array(z.string().max(500))).max(MAX_BATCH),
+    rows: z.array(z.array(z.string().max(MAX_CELL_CHARS))).max(MAX_BATCH),
   }),
 ]);
 
@@ -145,7 +151,10 @@ export function parseCsv(text: string): {
   });
   const rows = nonEmpty
     .slice(1)
-    .map((r) => columns.map((_, c) => (r[c] ?? "").trim()));
+    // Cells are capped to the schema limit so drafts and templates always validate.
+    .map((r) =>
+      columns.map((_, c) => (r[c] ?? "").trim().slice(0, MAX_CELL_CHARS)),
+    );
   if (rows.length > MAX_BATCH)
     throw new BatchError(
       `The file has ${rows.length} rows; a batch is limited to ${MAX_BATCH} labels`,
@@ -157,7 +166,7 @@ export function parseCsv(text: string): {
 export function parseList(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .map((s) => s.trim())
+    .map((s) => s.trim().slice(0, MAX_CELL_CHARS))
     .filter((s) => s.length > 0);
 }
 
@@ -181,21 +190,19 @@ export function substitute(
   now: Date = new Date(),
   formatDate: DateFormatter = defaultDateFormat,
 ): string {
-  const lower = record
-    ? Object.fromEntries(
-        Object.entries(record).map(([k, v]) => [k.toLowerCase(), v]),
-      )
-    : {};
+  // A Map, not an object: {constructor} or {__proto__} must not resolve to built-ins.
+  const lower = new Map(
+    Object.entries(record ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+  );
   return text.replace(PLACEHOLDER_RE, (match, rawKey: string) => {
     const key = rawKey.trim();
-    const date = /^today\s*(?:([+-])\s*(\d{1,4}))?$/i.exec(key);
+    const date = TODAY_RE.exec(key);
     if (date) {
       const d = new Date(now);
       if (date[1])
         d.setDate(d.getDate() + (date[1] === "-" ? -1 : 1) * Number(date[2]));
       return formatDate(d);
     }
-    const v = lower[key.toLowerCase()];
-    return v ?? match;
+    return lower.get(key.toLowerCase()) ?? match;
   });
 }

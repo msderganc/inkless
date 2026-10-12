@@ -28,6 +28,8 @@ interface Props {
   onSelect: (id: string | undefined, additive?: boolean) => void;
   /** Elements moved or resized by a drag (one undo step per drag). */
   onChange: (els: DesignElement[]) => void;
+  /** A drag finished: the next change is a new undo step. */
+  onGestureEnd?: () => void;
 }
 
 type Drag = {
@@ -86,6 +88,7 @@ export function Workspace({
   zoom,
   onSelect,
   onChange,
+  onGestureEnd,
 }: Props) {
   const pixels = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
@@ -205,6 +208,7 @@ export function Workspace({
     const up = () => {
       setDrag(undefined);
       setGuides({ xs: [], ys: [] });
+      onGestureEnd?.();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -214,7 +218,7 @@ export function Workspace({
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, [drag, zoom, onChange, spec, design.elements]);
+  }, [drag, zoom, onChange, onGestureEnd, spec, design.elements]);
 
   const startDrag = (
     e: React.PointerEvent,

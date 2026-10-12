@@ -81,6 +81,8 @@ export default function Editor() {
     update: setDesign,
     undo,
     redo,
+    seal,
+    reset: resetHistory,
     canUndo,
     canRedo,
   } = useDesignHistory(() => draft?.design ?? emptyDesign(initialLabel));
@@ -96,6 +98,7 @@ export default function Editor() {
   const [view, setView] = useState<"design" | "print">(draft?.view ?? "design");
   const [zoom, setZoom] = useState(draft?.zoom ?? DEFAULT_ZOOM);
   const [dialog, setDialog] = useState<Dialog>();
+  const [autosaveError, setAutosaveError] = useState<string>();
 
   // Autosave the work in progress so it survives a refresh (debounced; flushed when hidden).
   const latestDraft = useRef<Draft | undefined>(undefined);
@@ -112,7 +115,12 @@ export default function Editor() {
     };
     const t = setTimeout(() => {
       if (latestDraft.current)
-        void store.saveDraft(latestDraft.current).catch(() => undefined);
+        void store
+          .saveDraft(latestDraft.current)
+          .then(() => setAutosaveError(undefined))
+          .catch((e: unknown) =>
+            setAutosaveError(e instanceof Error ? e.message : String(e)),
+          );
     }, 400);
     return () => clearTimeout(t);
   }, [store, design, batch, density, copies, current, view, zoom]);
@@ -417,7 +425,7 @@ export default function Editor() {
         }[e.key] ?? [0, 0];
         replaceElements(
           selected.map((x) => ({ ...x, x: x.x + dx!, y: x.y + dy! })),
-          "nudge",
+          `nudge:${selected.map((x) => x.id).join(",")}`,
         );
       }
     };
@@ -498,7 +506,7 @@ export default function Editor() {
       );
     }
     setLoads((n) => n + 1);
-    setDesign(t.design);
+    resetHistory(t.design);
     setBatch(t.batch);
     setDensity(t.density);
     setCopies(t.copies);
@@ -673,6 +681,7 @@ export default function Editor() {
               zoom={zoom}
               onSelect={select}
               onChange={onWorkspaceChange}
+              onGestureEnd={seal}
             />
             {isBatch && (
               <IconButton
@@ -692,6 +701,11 @@ export default function Editor() {
                   · &ldquo;{shownLabel}&rdquo;
                 </span>
               )}
+            </p>
+          )}
+          {autosaveError && (
+            <p className="text-sm text-red-700" role="alert">
+              Your work isn&apos;t being saved: {autosaveError}
             </p>
           )}
           {previewError && (
@@ -791,7 +805,29 @@ export default function Editor() {
       {dialog === "ai" && (
         <AiIconDialog
           onClose={() => setDialog(undefined)}
-          onPick={(svg, name) => addIcon(svg, name, "ai")}
+          onPick={(result, name) => {
+            if (result.type === "svg") {
+              addIcon(result.data, name, "ai");
+              return;
+            }
+            // Image-model picture: an image element thresholded to 1-bit.
+            const size = Math.min(spec.widthMm, spec.heightMm) * 0.6;
+            const b = centredBox(size, size);
+            addElement({
+              id: newId(),
+              kind: "image",
+              x: b.x,
+              y: b.y,
+              w: Math.min(b.w, b.h),
+              h: Math.min(b.w, b.h),
+              rotation: 0,
+              src: result.data,
+              dither: false,
+              threshold: 128,
+              invert: false,
+            });
+            setDialog(undefined);
+          }}
           onOpenSettings={() => setDialog("ai-settings")}
         />
       )}

@@ -40,7 +40,7 @@ export function IconLibraryDialog({
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <input
-            autoFocus
+            data-autofocus
             type="search"
             placeholder="Search icons (e.g. heart, star, cat, home)"
             aria-label="Search icons"

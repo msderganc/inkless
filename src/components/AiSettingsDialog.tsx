@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   type AiProvider,
   MODEL_SUGGESTIONS,
+  OPENAI_IMAGE_MODELS,
   PROVIDER_NAMES,
 } from "~/lib/ai/models";
 import { type AiSettings, DEFAULT_AI_SETTINGS } from "~/lib/store/store";
@@ -44,6 +45,8 @@ export function AiSettingsDialog({ onClose }: { onClose: () => void }) {
       anthropicModel:
         value.anthropicModel.trim() || DEFAULT_AI_SETTINGS.anthropicModel,
       openaiModel: value.openaiModel.trim() || DEFAULT_AI_SETTINGS.openaiModel,
+      openaiImageModel:
+        value.openaiImageModel.trim() || DEFAULT_AI_SETTINGS.openaiImageModel,
     });
     setSaved("Saved.");
   };
@@ -114,20 +117,60 @@ export function AiSettingsDialog({ onClose }: { onClose: () => void }) {
             </span>
           </label>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-neutral-600">Model</span>
-            <input
-              className="rounded border border-neutral-300 px-2 py-1 font-mono"
-              list={`models-${p}`}
-              value={value[modelField]}
-              onChange={(e) => set({ [modelField]: e.target.value })}
+          {p === "openai" && (
+            <fieldset className="space-y-1">
+              <legend className="mb-1 text-xs text-neutral-600">
+                Icon style
+              </legend>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="style"
+                  checked={value.iconStyle === "vector"}
+                  onChange={() => set({ iconStyle: "vector" })}
+                />
+                <span>
+                  Vector (text model draws SVG)
+                  <span className="block text-xs text-neutral-500">
+                    Crispest print, bold simple shapes. Recommended.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="style"
+                  checked={value.iconStyle === "image"}
+                  onChange={() => set({ iconStyle: "image" })}
+                />
+                <span>
+                  Image model (GPT Image)
+                  <span className="block text-xs text-neutral-500">
+                    More detailed illustrations, converted to black and white.
+                    Fine detail may break up at small sizes.
+                  </span>
+                </span>
+              </label>
+            </fieldset>
+          )}
+
+          {p === "openai" && value.iconStyle === "image" ? (
+            <ModelPicker
+              key={`${p}-${value.iconStyle}`}
+              label="Image model"
+              options={OPENAI_IMAGE_MODELS}
+              value={value.openaiImageModel}
+              onChange={(openaiImageModel) => set({ openaiImageModel })}
             />
-            <datalist id={`models-${p}`}>
-              {MODEL_SUGGESTIONS[p].map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </label>
+          ) : (
+            <ModelPicker
+              key={`${p}-${value.iconStyle}`}
+              label="Model"
+              options={MODEL_SUGGESTIONS[p]}
+              value={value[modelField]}
+              onChange={(m) => set({ [modelField]: m })}
+            />
+          )}
 
           <p className="rounded bg-neutral-50 p-2 text-xs text-neutral-600">
             Keys are stored only in this browser and sent only to the provider
@@ -153,5 +196,59 @@ export function AiSettingsDialog({ onClose }: { onClose: () => void }) {
         </form>
       )}
     </Modal>
+  );
+}
+
+const CUSTOM = "__custom__";
+
+/** Dropdown of known models (all always visible) with a "Custom…" option for any other id. */
+function ModelPicker({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const known = options.includes(value);
+  const [custom, setCustom] = useState(!known);
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-neutral-600">{label}</span>
+        <select
+          className="rounded border border-neutral-300 px-2 py-1 font-mono"
+          value={custom ? CUSTOM : value}
+          onChange={(e) => {
+            if (e.target.value === CUSTOM) setCustom(true);
+            else {
+              setCustom(false);
+              onChange(e.target.value);
+            }
+          }}
+        >
+          {options.map((m, i) => (
+            <option key={m} value={m}>
+              {m}
+              {i === 0 ? "  (recommended)" : ""}
+            </option>
+          ))}
+          <option value={CUSTOM}>Custom…</option>
+        </select>
+      </label>
+      {custom && (
+        <input
+          aria-label={`${label} id`}
+          className="rounded border border-neutral-300 px-2 py-1 font-mono"
+          placeholder="model id, e.g. gpt-6.1-sol"
+          maxLength={100}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
   );
 }

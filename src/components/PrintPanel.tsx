@@ -7,6 +7,7 @@ import {
   batchRecords,
   type BatchSpec,
   MAX_BATCH,
+  MAX_FILE_NAME_CHARS,
   parseCsv,
   parseList,
   recordLabel,
@@ -57,7 +58,12 @@ export function PrintPanel(p: Props) {
       if (file.size > 2 * 1024 * 1024)
         throw new BatchError("That file is larger than 2 MB.");
       const { columns, rows } = parseCsv(await file.text());
-      p.onBatch({ kind: "csv", fileName: file.name, columns, rows });
+      p.onBatch({
+        kind: "csv",
+        fileName: file.name.slice(0, MAX_FILE_NAME_CHARS),
+        columns,
+        rows,
+      });
     } catch (e) {
       setCsvError(
         e instanceof BatchError

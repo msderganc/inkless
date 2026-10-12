@@ -4,7 +4,7 @@ import { LoaderCircle, Settings, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PROVIDER_NAMES } from "~/lib/ai/models";
 import { customRect } from "~/lib/catalogue";
-import { emptyDesign, newIcon } from "~/lib/design";
+import { type DesignElement, emptyDesign, newIcon, newId } from "~/lib/design";
 import { browserEnv } from "~/lib/render/browser-env";
 import { type MonoBitmap } from "~/lib/render/mono";
 import { renderLabel } from "~/lib/render/render";
@@ -22,8 +22,41 @@ const EXAMPLES = [
   "star with a smile",
 ];
 
+/** A generated icon: vector SVG (text models) or a PNG picture (image models). */
+export type AiResult =
+  { type: "svg"; data: string } | { type: "png"; data: string };
+
+/** The element a result becomes on the label. */
+function resultElement(
+  r: AiResult,
+  x: number,
+  y: number,
+  size: number,
+): DesignElement {
+  if (r.type === "svg") return newIcon(r.data, "preview", "ai", x, y, size);
+  return {
+    id: newId(),
+    kind: "image",
+    x,
+    y,
+    w: size,
+    h: size,
+    rotation: 0,
+    src: r.data,
+    dither: false,
+    threshold: 128,
+    invert: false,
+  };
+}
+
 /** Exactly what the icon prints like at `sizeMm`: rendered through the real 1-bit pipeline. */
-function PrintPreview({ svg, sizeMm }: { svg: string; sizeMm: number }) {
+function PrintPreview({
+  result,
+  sizeMm,
+}: {
+  result: AiResult;
+  sizeMm: number;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [bmp, setBmp] = useState<MonoBitmap>();
   useEffect(() => {
@@ -31,7 +64,7 @@ function PrintPreview({ svg, sizeMm }: { svg: string; sizeMm: number }) {
     const spec = customRect(Math.min(48, sizeMm + 2), sizeMm + 2);
     const design = {
       ...emptyDesign(spec.id),
-      elements: [newIcon(svg, "preview", "ai", 1, 1, sizeMm)],
+      elements: [resultElement(result, 1, 1, sizeMm)],
     };
     void renderLabel(design, spec, browserEnv).then(
       (r) => live && setBmp(r.label),
@@ -39,7 +72,7 @@ function PrintPreview({ svg, sizeMm }: { svg: string; sizeMm: number }) {
     return () => {
       live = false;
     };
-  }, [svg, sizeMm]);
+  }, [result, sizeMm]);
   useEffect(() => {
     const c = ref.current;
     if (!c || !bmp) return;
@@ -71,7 +104,7 @@ export function AiIconDialog({
   onOpenSettings,
 }: {
   onClose: () => void;
-  onPick: (svg: string, name: string) => void;
+  onPick: (result: AiResult, name: string) => void;
   onOpenSettings: () => void;
 }) {
   const { store } = useApp();
@@ -79,7 +112,7 @@ export function AiIconDialog({
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [results, setResults] = useState<string[]>([]);
+  const [results, setResults] = useState<AiResult[]>([]);
   const [sizeMm, setSizeMm] = useState(15);
   const abort = useRef<AbortController | undefined>(undefined);
 
@@ -93,10 +126,13 @@ export function AiIconDialog({
       ? ai.anthropicKey
       : ai.openaiKey
     : "";
+  const imageMode = ai?.provider === "openai" && ai.iconStyle === "image";
   const model = ai
     ? ai.provider === "anthropic"
       ? ai.anthropicModel
-      : ai.openaiModel
+      : imageMode
+        ? ai.openaiImageModel
+        : ai.openaiModel
     : "";
 
   const generate = async () => {
@@ -108,13 +144,19 @@ export function AiIconDialog({
     abort.current = ctl;
     try {
       // Loaded on demand: keeps both AI SDKs out of the main bundle.
-      const { generateIcons } = await import("~/lib/ai/generate");
-      const svgs = await generateIcons(
-        { provider: ai.provider, apiKey: key, model },
-        prompt,
-        ctl.signal,
-      );
-      if (!ctl.signal.aborted) setResults(svgs);
+      const { generateIcons, generateImageIcons } =
+        await import("~/lib/ai/generate");
+      const cfg = { provider: ai.provider, apiKey: key, model };
+      const out: AiResult[] = imageMode
+        ? (await generateImageIcons(cfg, prompt, ctl.signal)).map((data) => ({
+            type: "png",
+            data,
+          }))
+        : (await generateIcons(cfg, prompt, ctl.signal)).map((data) => ({
+            type: "svg",
+            data,
+          }));
+      if (!ctl.signal.aborted) setResults(out);
     } catch (e) {
       if (!ctl.signal.aborted)
         setError(e instanceof Error ? e.message : String(e));
@@ -157,7 +199,7 @@ export function AiIconDialog({
           }}
         >
           <input
-            autoFocus
+            data-autofocus
             className="min-w-0 flex-1 rounded border border-neutral-300 px-3 py-1.5"
             placeholder="Describe an icon, e.g. a sleeping cat"
             aria-label="Icon description"
@@ -213,16 +255,16 @@ export function AiIconDialog({
               />
             </label>
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {results.map((svg, i) => (
+              {results.map((result, i) => (
                 <li key={i}>
                   <button
                     type="button"
                     aria-label={`Use icon ${i + 1}`}
                     title="Add this icon to the label"
                     className="flex w-full flex-col items-center gap-1 rounded border border-neutral-300 p-2 hover:border-sky-500"
-                    onClick={() => onPick(svg, prompt.trim() || "AI icon")}
+                    onClick={() => onPick(result, prompt.trim() || "AI icon")}
                   >
-                    <PrintPreview svg={svg} sizeMm={sizeMm} />
+                    <PrintPreview result={result} sizeMm={sizeMm} />
                     <span className="text-xs text-neutral-600">Use this</span>
                   </button>
                 </li>

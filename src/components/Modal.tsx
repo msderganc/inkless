@@ -4,7 +4,11 @@ import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { IconButton } from "./IconButton";
 
-/** Accessible modal dialog using the native <dialog> element (focus trap, Escape to close). */
+/**
+ * Accessible modal dialog using the native <dialog> element (focus trap, Escape to close).
+ * Focuses the element marked `data-autofocus` (or the first field) once open, and returns
+ * focus to whatever was focused before when it closes.
+ */
 export function Modal({
   title,
   onClose,
@@ -17,16 +21,31 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Keep the latest onClose without re-running the open/close effect.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     const d = ref.current;
-    if (d && !d.open) d.showModal();
+    if (!d) return;
+    const previous = document.activeElement as HTMLElement | null;
+    if (!d.open) d.showModal();
+    // React's autoFocus runs before showModal() and is ignored; focus explicitly instead.
+    const target =
+      d.querySelector<HTMLElement>("[data-autofocus]") ??
+      d.querySelector<HTMLElement>("input, textarea, select");
+    target?.focus();
     const onCancel = (e: Event) => {
       e.preventDefault();
-      onClose();
+      onCloseRef.current();
     };
-    d?.addEventListener("cancel", onCancel);
-    return () => d?.removeEventListener("cancel", onCancel);
-  }, [onClose]);
+    d.addEventListener("cancel", onCancel);
+    return () => {
+      d.removeEventListener("cancel", onCancel);
+      if (d.open) d.close();
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
 
   return (
     <dialog

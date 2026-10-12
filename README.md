@@ -17,6 +17,11 @@ Built with the T3 stack (Next.js static export, TypeScript, Tailwind). tRPC, a d
 - Templates saved in the browser, with JSON backup export and import.
 - Remembers which label is loaded for each RFID roll barcode.
 - Diagnostics page: printer and roll info, a test pattern, horizontal calibration, measured-geometry overrides, and an opt-in packet log (last 500 packets).
+- Curved text along the top or bottom of round labels. Shapes: rectangle, ellipse, line, and a border that follows the label outline (single or double).
+- Offline icon library of about 2,100 Lucide icons, with adjustable line weight.
+- AI icon generator using Anthropic Claude or OpenAI with your own API key. Icons are generated as bold black-and-white SVG suited to 203 DPI and previewed exactly as they will print. Keys stay in the browser and are never included in backups.
+- Spreadsheet batches: import a CSV and use its columns as `{placeholders}`. `{today}` and `{today+7}` insert dates.
+- Undo and redo (Ctrl+Z, Ctrl+Y), multi-select (Shift+click, Ctrl+A), group alignment, duplicate (Ctrl+D), and snapping to the centre, edges and other items (hold Alt to turn it off).
 
 ## Requirements
 

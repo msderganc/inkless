@@ -2,13 +2,21 @@
 
 import { useCallback, useState } from "react";
 import { type Design } from "~/lib/design";
-import { commit, createHistory, type History, redo, undo } from "~/lib/history";
+import {
+  commit,
+  createHistory,
+  type History,
+  redo,
+  seal,
+  undo,
+} from "~/lib/history";
 
 export type DesignUpdate = Design | ((d: Design) => Design);
 
 /**
  * Design state with undo/redo. `key` coalesces rapid edits of the same thing (typing in one
- * box, one drag, one slider) into a single undo step.
+ * box, one drag, one slider) into a single undo step; `seal` ends a gesture so the next edit
+ * is always a new step; `reset` starts fresh (e.g. after loading a template).
  */
 export function useDesignHistory(initial: () => Design) {
   const [h, setH] = useState<History<Design>>(() => createHistory(initial()));
@@ -28,6 +36,8 @@ export function useDesignHistory(initial: () => Design) {
     update,
     undo: useCallback(() => setH(undo), []),
     redo: useCallback(() => setH(redo), []),
+    seal: useCallback(() => setH(seal), []),
+    reset: useCallback((d: Design) => setH(createHistory(d)), []),
     canUndo: h.past.length > 0,
     canRedo: h.future.length > 0,
   };

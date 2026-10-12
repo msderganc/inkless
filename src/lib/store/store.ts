@@ -1,6 +1,6 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import { z } from "zod";
-import { DEFAULT_MODELS } from "../ai/models";
+import { DEFAULT_MODELS, DEFAULT_OPENAI_IMAGE_MODEL } from "../ai/models";
 import { batchSpecSchema, type BatchSpec } from "../batch";
 import { designSchema, type Design } from "../design";
 
@@ -81,6 +81,14 @@ export const aiSettingsSchema = z.object({
   openaiKey: z.string().max(500),
   anthropicModel: z.string().min(1).max(100),
   openaiModel: z.string().min(1).max(100),
+  // Added later: defaults keep older saved settings valid.
+  openaiImageModel: z
+    .string()
+    .min(1)
+    .max(100)
+    .default(DEFAULT_OPENAI_IMAGE_MODEL),
+  /** OpenAI only: "vector" (SVG from a text model) or "image" (image model, converted to 1-bit). */
+  iconStyle: z.enum(["vector", "image"]).default("vector"),
 });
 export type AiSettings = z.infer<typeof aiSettingsSchema>;
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -89,6 +97,8 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   openaiKey: "",
   anthropicModel: DEFAULT_MODELS.anthropic,
   openaiModel: DEFAULT_MODELS.openai,
+  openaiImageModel: DEFAULT_OPENAI_IMAGE_MODEL,
+  iconStyle: "vector",
 };
 
 /** Editor working state that survives a page refresh. */
@@ -164,7 +174,7 @@ export class Store {
     return parsed.success ? parsed.data : DEFAULT_AI_SETTINGS;
   }
 
-  async saveAiSettings(value: AiSettings): Promise<void> {
+  async saveAiSettings(value: z.input<typeof aiSettingsSchema>): Promise<void> {
     await this.db.put("secrets", {
       key: "ai",
       value: aiSettingsSchema.parse(value),

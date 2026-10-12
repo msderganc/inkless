@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { alignGroup } from "./align";
 import { findLabel } from "./catalogue";
-import { newText } from "./design";
+import { designUsesBatch, emptyDesign, newText } from "./design";
 import { iconDisplayName, lucideToSvg, searchIcons } from "./icons";
 import { boxLines, snapMove, unionBox } from "./snap";
 
@@ -72,5 +72,18 @@ describe("icon library helpers", () => {
     ]);
     expect(searchIcons(all, "cart").map((i) => i.key)[0]).toBe("Cart");
     expect(searchIcons(all, "")).toHaveLength(5);
+  });
+});
+
+describe("designUsesBatch", () => {
+  it("treats every {today…} form as a date, not a batch placeholder", () => {
+    const d = (text: string) => ({
+      ...emptyDesign("x"),
+      elements: [{ ...newText(0, 0, 5, 5), text }],
+    });
+    expect(
+      designUsesBatch(d("{today} {today+7} {today - 3} {TODAY + 1}")),
+    ).toBe(false);
+    expect(designUsesBatch(d("{name} {today}"))).toBe(true);
   });
 });

@@ -189,6 +189,9 @@ export function newIcon(
   };
 }
 
+/** {today}, {today+7}, {today - 3}: used by both substitution and placeholder detection. */
+export const TODAY_RE = /^today\s*(?:([+-])\s*(\d{1,4}))?$/i;
+
 /** Matches {name}, {n}, {today}, {today+7}, {Due Date}… (no nested braces). */
 export const PLACEHOLDER_RE = /\{([^{}\n]{1,60})\}/g;
 
@@ -198,7 +201,7 @@ export function designUsesBatch(design: Design): boolean {
     (e) =>
       e.kind === "text" &&
       [...e.text.matchAll(PLACEHOLDER_RE)].some(
-        (m) => !/^today([+-]\d+)?$/i.test(m[1]!.trim()),
+        (m) => !TODAY_RE.test(m[1]!.trim()),
       ),
   );
 }

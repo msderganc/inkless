@@ -40,9 +40,15 @@ export function TemplatesPanel({
       setMessage("Enter a name first.");
       return;
     }
-    await onSave(n, asNew);
-    setMessage(`Saved “${n}”.`);
-    await refresh();
+    try {
+      await onSave(n, asNew);
+      setMessage(`Saved “${n}”.`);
+      await refresh();
+    } catch (e) {
+      setMessage(
+        `Could not save: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   };
 
   const exportBackup = async () => {

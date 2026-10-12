@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AiError,
   generateIcons,
+  generateImageIcons,
   ICON_SYSTEM_PROMPT,
   svgsFromModelText,
 } from "./generate";
@@ -182,6 +183,70 @@ describe("generateIcons — OpenAI", () => {
           provider: "openai",
           apiKey: "k",
           model: "gpt-5.5",
+          fetch: fakeFetch(
+            401,
+            { error: { message: "bad", type: "invalid_request_error" } },
+            [],
+          ),
+        },
+        "x",
+      ),
+    ).rejects.toThrow(/rejected the API key/);
+  });
+});
+
+describe("generateImageIcons — OpenAI image models", () => {
+  it("calls the Images API asking for opaque PNGs and returns data URLs", async () => {
+    const calls: Call[] = [];
+    const urls = await generateImageIcons(
+      {
+        provider: "openai",
+        apiKey: "sk-openai-test",
+        model: "gpt-image-2",
+        fetch: fakeFetch(
+          200,
+          {
+            created: 0,
+            data: [{ b64_json: "iVBORw0KGgo=" }, { b64_json: "AAAA" }],
+          },
+          calls,
+        ),
+      },
+      "a cat",
+    );
+    expect(urls).toEqual([
+      "data:image/png;base64,iVBORw0KGgo=",
+      "data:image/png;base64,AAAA",
+    ]);
+    expect(calls[0]!.url).toMatch(/\/images\/generations/);
+    expect(calls[0]!.body).toMatchObject({
+      model: "gpt-image-2",
+      n: 4,
+      background: "opaque",
+      output_format: "png",
+    });
+    expect(String(calls[0]!.body.prompt)).toContain("a cat");
+    expect(String(calls[0]!.body.prompt)).toMatch(/black ink on a pure white/);
+  });
+
+  it("errors clearly when no picture comes back or the key is wrong", async () => {
+    await expect(
+      generateImageIcons(
+        {
+          provider: "openai",
+          apiKey: "k",
+          model: "gpt-image-2",
+          fetch: fakeFetch(200, { created: 0, data: [] }, []),
+        },
+        "x",
+      ),
+    ).rejects.toThrow(/didn't return a picture/);
+    await expect(
+      generateImageIcons(
+        {
+          provider: "openai",
+          apiKey: "k",
+          model: "gpt-image-2",
           fetch: fakeFetch(
             401,
             { error: { message: "bad", type: "invalid_request_error" } },

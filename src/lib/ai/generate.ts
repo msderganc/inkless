@@ -184,3 +184,67 @@ export async function generateIcons(
     );
   return svgs.slice(0, ICON_COUNT);
 }
+
+/**
+ * Prompt for OpenAI image models. The picture is converted to 1-bit afterwards, so it must
+ * already be pure black ink on white with bold lines — any grey or fine detail would be lost.
+ */
+export const IMAGE_ICON_PROMPT = (request: string) =>
+  `A single icon of: ${request}.
+Style: bold black-and-white stamp or sticker icon for a 203 DPI thermal label printer.
+Pure solid black ink on a pure white background. No grey, no shading, no gradients, no texture, no colour.
+Thick, bold outlines and solid black fills; lines at least 1/25 of the image width; no fine detail or hatching.
+Simple, instantly recognisable shapes, centred, with a wide white margin. No text, no frame, no shadow.`;
+
+/** Max image bytes accepted from the API (base64 PNG), as a sanity bound. */
+const MAX_IMAGE_B64 = 8_000_000;
+
+/**
+ * Generate ICON_COUNT pictures with an OpenAI image model; returns PNG data URLs. They are
+ * added as image elements and thresholded to 1-bit by the renderer.
+ */
+export async function generateImageIcons(
+  cfg: AiConfig,
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const request = prompt.trim();
+  if (!request) throw new AiError("Describe the icon first.");
+  if (!cfg.apiKey.trim())
+    throw new AiError("Add your API key in Settings first.");
+  const client = new OpenAI({
+    apiKey: cfg.apiKey,
+    dangerouslyAllowBrowser: true,
+    maxRetries: 1,
+    ...(cfg.fetch ? { fetch: cfg.fetch } : {}),
+  });
+  try {
+    const response = await client.images.generate(
+      {
+        model: cfg.model,
+        prompt: IMAGE_ICON_PROMPT(request),
+        n: ICON_COUNT,
+        size: "1024x1024",
+        quality: "medium",
+        background: "opaque",
+        output_format: "png",
+      },
+      { signal },
+    );
+    const urls = (response.data ?? [])
+      .map((d) => d.b64_json)
+      .filter(
+        (b): b is string =>
+          typeof b === "string" && b.length > 0 && b.length < MAX_IMAGE_B64,
+      )
+      .map((b) => `data:image/png;base64,${b}`);
+    if (urls.length === 0)
+      throw new AiError(
+        "The image model didn't return a picture. Try again or rephrase.",
+      );
+    return urls;
+  } catch (e) {
+    if (e instanceof AiError) throw e;
+    throw openaiError(e);
+  }
+}

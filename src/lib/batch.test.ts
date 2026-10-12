@@ -150,3 +150,27 @@ describe("parseList", () => {
   it("splits lines", () =>
     expect(parseList("a\r\nb\n\n c ")).toEqual(["a", "b", "c"]));
 });
+
+describe("review regressions", () => {
+  it("{constructor} and {__proto__} are not filled from Object built-ins", () => {
+    expect(substitute("{constructor} {__proto__} {toString}", null)).toBe(
+      "{constructor} {__proto__} {toString}",
+    );
+    expect(substitute("{constructor}", { n: "1" })).toBe("{constructor}");
+  });
+
+  it("CSV cells and list items are capped so drafts/templates stay valid", () => {
+    const long = "x".repeat(900);
+    const { rows } = parseCsv(`notes\n${long}`);
+    expect(rows[0]![0]).toHaveLength(500);
+    expect(parseList(long)[0]).toHaveLength(500);
+    expect(
+      batchSpecSchema.safeParse({
+        kind: "csv",
+        fileName: "f.csv",
+        columns: ["notes"],
+        rows,
+      }).success,
+    ).toBe(true);
+  });
+});

@@ -5,6 +5,7 @@ import {
   createHistory,
   HISTORY_LIMIT,
   redo,
+  seal,
   undo,
 } from "./history";
 
@@ -51,5 +52,15 @@ describe("history", () => {
     h = undo(h);
     h = commit(h, "b", "type", 10);
     expect(undo(h).present).toBe("");
+  });
+});
+
+describe("seal", () => {
+  it("ends coalescing so the next keyed change is a new undo step", () => {
+    let h = createHistory(0);
+    h = commit(h, 1, "drag:a", 0);
+    h = seal(h);
+    h = commit(h, 2, "drag:a", 10);
+    expect(undo(h).present).toBe(1);
   });
 });

@@ -41,6 +41,11 @@ export function commit<T>(
   };
 }
 
+/** End the current coalescing run so the next change starts a new undo step. */
+export function seal<T>(h: History<T>): History<T> {
+  return h.lastKey === undefined ? h : { ...h, lastKey: undefined };
+}
+
 export function undo<T>(h: History<T>): History<T> {
   const prev = h.past[h.past.length - 1];
   if (prev === undefined) return h;
