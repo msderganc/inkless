@@ -198,22 +198,31 @@ async function postForm(
   return body;
 }
 
-/** Validate the callback and exchange the code for tokens. */
+/**
+ * Validate the callback and exchange the code for tokens. A first sign-in registers this app
+ * and the callback carries the issued `client_id` (oaiapp_…), which the exchange must use;
+ * `saveClient` persists it before the exchange so a failed exchange can retry with it.
+ */
 export async function completeSignIn(
   auth: ChatgptAuth,
   pending: PendingSignIn | undefined,
   callback: {
     code?: string | null;
     state?: string | null;
+    clientId?: string | null;
     error?: string | null;
+    errorDescription?: string | null;
   },
   fetchImpl: typeof fetch = fetch,
   now = Date.now(),
+  saveClient: (a: ChatgptAuth) => Promise<void> = () => Promise.resolve(),
 ): Promise<ChatgptAuth> {
   if (callback.error === "access_denied")
     throw new ChatgptAuthError("Sign-in was cancelled.");
   if (callback.error)
-    throw new ChatgptAuthError(`Sign-in failed: ${callback.error}`);
+    throw new ChatgptAuthError(
+      `Sign-in failed: ${callback.errorDescription ?? callback.error}`,
+    );
   if (!pending || now - pending.createdAt > PENDING_TTL_MS) {
     throw new ChatgptAuthError(
       "This sign-in has expired. Start again from AI settings.",
@@ -225,7 +234,22 @@ export async function completeSignIn(
     );
   }
   if (!callback.code) throw new ChatgptAuthError("Sign-in returned no code.");
-  const clientId = auth.clientId ?? DYNAMIC_CLIENT_ID;
+  // Reauthorization may omit client_id; then the one saved from registration applies.
+  const fromCallback = callback.clientId?.trim();
+  const issued =
+    fromCallback !== undefined && fromCallback !== ""
+      ? fromCallback
+      : auth.clientId;
+  if (!issued || issued === DYNAMIC_CLIENT_ID || issued.length > 200) {
+    throw new ChatgptAuthError(
+      "OpenAI didn't return this app's client ID. Start the sign-in again.",
+    );
+  }
+  if (issued !== auth.clientId) {
+    auth = { ...auth, clientId: issued };
+    await saveClient(auth);
+  }
+  const clientId = issued;
   const t = await postForm(fetchImpl, TOKEN_URL, {
     grant_type: "authorization_code",
     client_id: clientId,

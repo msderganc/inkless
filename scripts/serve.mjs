@@ -71,7 +71,13 @@ const oauth = createServer((req, res) => {
   }
   if (url.pathname === "/auth/callback") {
     const forward = new URLSearchParams();
-    for (const k of ["code", "state", "error", "error_description"]) {
+    for (const k of [
+      "code",
+      "state",
+      "client_id",
+      "error",
+      "error_description",
+    ]) {
       const v = url.searchParams.get(k);
       if (v) forward.set(k, v);
     }
@@ -87,6 +93,8 @@ const oauth = createServer((req, res) => {
   res.end();
 });
 oauth.on("error", (e) =>
-  console.warn(`ChatGPT sign-in listener unavailable on 127.0.0.1:${OAUTH_PORT} (${e.code}).`),
+  console.warn(
+    `ChatGPT sign-in listener unavailable on 127.0.0.1:${OAUTH_PORT} (${e.code}).`,
+  ),
 );
 oauth.listen(OAUTH_PORT, "127.0.0.1");

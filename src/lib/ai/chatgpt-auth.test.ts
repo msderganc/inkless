@@ -127,7 +127,7 @@ describe("completeSignIn", () => {
     const auth = await completeSignIn(
       newChatgptAuth(),
       pending,
-      { code: "c0de", state: "st" },
+      { code: "c0de", state: "st", clientId: "oaiapp_new" },
       fakeFetch(200, tokens, calls),
       NOW,
     );
@@ -135,6 +135,7 @@ describe("completeSignIn", () => {
     expect(calls[0]!.form.get("grant_type")).toBe("authorization_code");
     expect(calls[0]!.form.get("code_verifier")).toBe(pending.verifier);
     expect(calls[0]!.form.get("redirect_uri")).toBe(REDIRECT_URI);
+    expect(calls[0]!.form.get("client_id")).toBe("oaiapp_new");
     expect(auth).toMatchObject({
       accessToken: "at",
       refreshToken: "rt",
@@ -147,7 +148,7 @@ describe("completeSignIn", () => {
 
   it("rejects mismatched state, expired attempts, cancellations and missing plan scope", async () => {
     const run = (
-      cb: { code?: string; state?: string; error?: string },
+      cb: { code?: string; state?: string; clientId?: string; error?: string },
       p: typeof pending | null = pending,
       json: unknown = tokens,
     ) =>
@@ -161,22 +162,61 @@ describe("completeSignIn", () => {
     await expect(run({ code: "c", state: "evil" })).rejects.toThrow(
       /state mismatch/,
     );
-    await expect(run({ code: "c", state: "st" }, null)).rejects.toThrow(
-      /expired/,
-    );
+    await expect(
+      run({ code: "c", state: "st", clientId: "oaiapp_new" }, null),
+    ).rejects.toThrow(/expired/);
     await expect(
       run(
-        { code: "c", state: "st" },
+        { code: "c", state: "st", clientId: "oaiapp_new" },
         { ...pending, createdAt: NOW - PENDING_TTL_MS - 1 },
       ),
     ).rejects.toThrow(/expired/);
     await expect(run({ error: "access_denied" })).rejects.toThrow(/cancelled/);
     await expect(
-      run({ code: "c", state: "st" }, pending, {
+      run({ code: "c", state: "st", clientId: "oaiapp_new" }, pending, {
         ...tokens,
         scope: "openid email",
       }),
     ).rejects.toThrow(/didn't allow/);
+  });
+
+  it("saves the issued client id before exchanging, and reuses a saved one when omitted", async () => {
+    const saved: ChatgptAuth[] = [];
+    await completeSignIn(
+      newChatgptAuth(),
+      pending,
+      { code: "c", state: "st", clientId: "oaiapp_reg" },
+      fakeFetch(400, { error: "invalid_grant" }, []),
+      NOW,
+      async (a) => {
+        saved.push(a);
+      },
+    ).catch(() => undefined);
+    expect(saved[0]?.clientId).toBe("oaiapp_reg");
+
+    const calls: Call[] = [];
+    await completeSignIn(
+      signedIn(),
+      pending,
+      { code: "c", state: "st" },
+      fakeFetch(200, tokens, calls),
+      NOW,
+    );
+    expect(calls[0]!.form.get("client_id")).toBe("oaiapp_abc");
+  });
+
+  it("refuses to exchange without an issued client id", async () => {
+    const calls: Call[] = [];
+    await expect(
+      completeSignIn(
+        newChatgptAuth(),
+        pending,
+        { code: "c", state: "st" },
+        fakeFetch(200, tokens, calls),
+        NOW,
+      ),
+    ).rejects.toThrow(/client ID/);
+    expect(calls).toHaveLength(0);
   });
 
   it("surfaces token endpoint errors", async () => {
@@ -184,7 +224,7 @@ describe("completeSignIn", () => {
       completeSignIn(
         newChatgptAuth(),
         pending,
-        { code: "c", state: "st" },
+        { code: "c", state: "st", clientId: "oaiapp_new" },
         fakeFetch(
           400,
           { error: "invalid_grant", error_description: "Code expired" },

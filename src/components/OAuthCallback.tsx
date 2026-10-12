@@ -22,11 +22,20 @@ export default function OAuthCallback() {
       await store.savePendingSignIn(undefined);
       try {
         const auth = await store.getChatgptAuth();
-        const next = await completeSignIn(auth, pending, {
-          code: params.get("code"),
-          state: params.get("state"),
-          error: params.get("error"),
-        });
+        const next = await completeSignIn(
+          auth,
+          pending,
+          {
+            code: params.get("code"),
+            state: params.get("state"),
+            clientId: params.get("client_id"),
+            error: params.get("error"),
+            errorDescription: params.get("error_description"),
+          },
+          fetch,
+          Date.now(),
+          (a) => store.saveChatgptAuth(a),
+        );
         await store.saveChatgptAuth(next);
         const ai = await store.getAiSettings();
         await store.saveAiSettings({
