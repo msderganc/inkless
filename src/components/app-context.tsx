@@ -48,6 +48,12 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 /** One printer session per page; created lazily in the browser only. */
 let sharedSession: PrinterSession | undefined;
+
+/** True while a print job is running (used to postpone automatic app updates). */
+export function isPrinterBusy(): boolean {
+  const state = sharedSession?.getStatus().state;
+  return state === "printing" || state === "cancelling";
+}
 function getSession(): PrinterSession {
   sharedSession ??= new PrinterSession({
     // Automatic reconnects have no user gesture, so they may only reuse a remembered port.

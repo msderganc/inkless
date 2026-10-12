@@ -5,7 +5,14 @@ const PRECACHE = __PRECACHE__;
 const CACHE = `b21s-labels-${BUILD_ID}`;
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
+  // Activate as soon as the new build is fully cached; the page reloads itself when idle
+  // (work in progress is autosaved), so there is no "click to update" step to miss.
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -13,7 +20,11 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       // Keep only the current build (the previous one stays until this one activates).
-      await Promise.all(keys.filter((k) => k.startsWith("b21s-labels-") && k !== CACHE).map((k) => caches.delete(k)));
+      await Promise.all(
+        keys
+          .filter((k) => k.startsWith("b21s-labels-") && k !== CACHE)
+          .map((k) => caches.delete(k)),
+      );
       await self.clients.claim();
     })(),
   );
@@ -32,8 +43,16 @@ self.addEventListener("fetch", (event) => {
     (async () => {
       const cache = await caches.open(CACHE);
       // Pages are exported as /path/index.html (trailingSlash); navigations match by path.
-      const key = req.mode === "navigate" ? new URL(url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`, url) : req;
-      const hit = await cache.match(key, { ignoreSearch: req.mode === "navigate" });
+      const key =
+        req.mode === "navigate"
+          ? new URL(
+              url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`,
+              url,
+            )
+          : req;
+      const hit = await cache.match(key, {
+        ignoreSearch: req.mode === "navigate",
+      });
       if (hit) return hit;
       try {
         return await fetch(req);

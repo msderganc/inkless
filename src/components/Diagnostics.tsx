@@ -32,6 +32,13 @@ export default function Diagnostics() {
   const [paper, setPaper] = useState<PaperInfo | null>();
   const [result, setResult] = useState<string>();
   const [log, setLog] = useState(session.getPacketLog());
+  const [build, setBuild] = useState<{ buildId: string; builtAt: string }>();
+  useEffect(() => {
+    fetch("/build-manifest.json")
+      .then((r) => r.json() as Promise<{ buildId: string; builtAt: string }>)
+      .then(setBuild)
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!settings.diagnostics) return;
@@ -96,6 +103,12 @@ export default function Diagnostics() {
         <section className={box}>
           <h2 className="font-semibold">Printer</h2>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt className="text-neutral-500">App version</dt>
+            <dd className="font-mono text-xs">
+              {build
+                ? `${build.buildId} (${new Date(build.builtAt).toLocaleString()})`
+                : "—"}
+            </dd>
             <dt className="text-neutral-500">Model</dt>
             <dd>
               {status.identity
