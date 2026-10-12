@@ -39,7 +39,7 @@ export class SimulatedB21S extends FakeSerialPort {
   labelType?: number;
   quantity = 1;
   pagesPrinted = 0;
-  pageSizes: { rows: number; cols: number }[] = [];
+  pageSizes: { rows: number; cols?: number }[] = [];
   /** Bitmap/empty-row packets received. */
   imagePackets = 0;
   ended = 0;
@@ -72,10 +72,14 @@ export class SimulatedB21S extends FakeSerialPort {
         this.labelType = data[0];
         break;
       case 0x13:
-        this.pageSizes.push({
-          rows: (data[0]! << 8) | data[1]!,
-          cols: (data[2]! << 8) | data[3]!,
-        });
+        this.pageSizes.push(
+          data.length >= 4
+            ? {
+                rows: (data[0]! << 8) | data[1]!,
+                cols: (data[2]! << 8) | data[3]!,
+              }
+            : { rows: (data[0]! << 8) | data[1]! },
+        );
         break;
       case 0x15:
         this.quantity = (data[0]! << 8) | data[1]!;

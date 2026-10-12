@@ -12,6 +12,7 @@ import {
   type RfidInfo,
 } from "@mmote/niimbluelib";
 import { RingLog } from "../ring-log";
+import { B21SPrintTask } from "./b21s-task";
 
 export const PACKET_LOG_SIZE = 500;
 
@@ -517,7 +518,7 @@ export class PrinterSession {
     };
     const task = this.deps.newPrintTask
       ? this.deps.newPrintTask(client, options)
-      : client.protocol.newPrintTask("D110", options);
+      : new B21SPrintTask(client.protocol, options);
     const deadline =
       this.deps.pageDeadlineMs?.(job.copies) ??
       PAGE_DEADLINE_BASE_MS + PAGE_DEADLINE_PER_COPY_MS * job.copies;

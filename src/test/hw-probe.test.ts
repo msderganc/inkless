@@ -110,4 +110,52 @@ describe.skipIf(!PORT)("hardware probe", () => {
       await session.disconnect();
     }
   }, 60_000);
+
+  // Prints one outline test label. Only with HW_PRINT=<label id>, e.g. HW_PRINT=round-31.
+  it.skipIf(!process.env.HW_PRINT)(
+    "prints one outline test label",
+    async () => {
+      const req = createRequire(`${process.env.HW_SERIALPORT_DIR}/`);
+      const { SerialPort } = req("serialport") as {
+        SerialPort: new (o: object) => NodeSerialPort;
+      };
+      const { findLabel } = await import("~/lib/catalogue");
+      const { outlineTest } = await import("~/lib/render/outline-test");
+      const { encodeForPrinter } = await import("~/lib/render/encode");
+      const { nodeEnv } = await import("~/test/canvas-env");
+      const { labelTypeFor } = await import("~/lib/printer/session");
+      const spec = findLabel(process.env.HW_PRINT!)!;
+      const adapter = new NodePortAdapter(SerialPort, PORT!);
+      const session = new PrinterSession({
+        createClient: () => new B21SerialClient(async () => adapter),
+      });
+      try {
+        await session.connect();
+        process.stdout.write(`
+CONNECT ${JSON.stringify(session.getStatus().error ?? "ok")}
+`);
+        expect(session.getStatus().state).toBe("ready");
+        adapter.log.length = 0;
+        const out = await session.print({
+          pageCount: 1,
+          copies: 1,
+          density: 3,
+          labelType: labelTypeFor(spec.stock),
+          renderPage: async () =>
+            encodeForPrinter(
+              outlineTest(spec, nodeEnv, Number(process.env.HW_OFFSET ?? 0))
+                .print,
+            ),
+        });
+        process.stdout.write(`\nOUTCOME ${JSON.stringify(out)}\n`);
+        process.stdout.write(
+          `PACKETS\n${adapter.log.filter((l) => !/^>> 5555(85|84|83)/.test(l)).join("\n")}\n` +
+            `(image row packets: ${adapter.log.filter((l) => /^>> 5555(85|84|83)/.test(l)).length})\n`,
+        );
+      } finally {
+        await session.disconnect();
+      }
+    },
+    120_000,
+  );
 });

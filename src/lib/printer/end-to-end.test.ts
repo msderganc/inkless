@@ -52,7 +52,8 @@ describe("end to end with the real D110 print task", () => {
     expect(port.density).toBe(3);
     expect(port.labelType).toBe(LabelType.WithGaps);
     expect(port.pagesPrinted).toBe(6);
-    expect(port.pageSizes).toEqual(Array(3).fill({ rows: 240, cols: 384 }));
+    // B21S sequence: rows-only SetPageSize; the page is a full 384-dot head-width raster.
+    expect(port.pageSizes).toEqual(Array(3).fill({ rows: 240 }));
     expect(port.imagePackets).toBeGreaterThan(0);
     expect(port.ended).toBe(1);
     expect(session.getStatus().state).toBe("ready");

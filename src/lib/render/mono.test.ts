@@ -3,6 +3,7 @@ import {
   blackCount,
   createMono,
   cropColumns,
+  positionOnHead,
   dither,
   luminance,
   type MonoBitmap,
@@ -61,6 +62,21 @@ describe("mono", () => {
     const b = bmpFrom(2, ["#.", ".#", "..", "..", "..", ".."]);
     tileBand(b, 0, 2, 2, 4);
     expect(rowsOf(b)).toEqual(["#.", ".#", "#.", ".#", "#.", ".#"]);
+  });
+
+  it("positionOnHead: narrow labels sit at the head's left end (hardware-verified, V12)", () => {
+    const out = positionOnHead(bmpFrom(2, ["##"]), 6);
+    expect(rowsOf(out)).toEqual(["##...."]);
+    expect(rowsOf(positionOnHead(bmpFrom(2, ["##"]), 6, 2))).toEqual([
+      "..##..",
+    ]);
+    expect(rowsOf(positionOnHead(bmpFrom(2, ["##"]), 6, -1))).toEqual([
+      "#.....",
+    ]);
+  });
+
+  it("positionOnHead: wider stock is cropped symmetrically", () => {
+    expect(rowsOf(positionOnHead(bmpFrom(6, ["#.##.#"]), 4))).toEqual([".##."]);
   });
 
   it("cropColumns", () => {

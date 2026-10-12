@@ -10,17 +10,17 @@ import {
   DOTS_PER_MM,
   mmToDots,
   printWindow,
+  PRINTHEAD_DOTS,
   type PrintWindow,
 } from "../geometry";
 import { regionContains, safeRegion } from "../shapes";
 import {
-  cropColumns,
   dither,
   invert,
   luminance,
   type MonoBitmap,
   rotateBand180,
-  shiftColumns,
+  positionOnHead,
   threshold,
   tileBand,
 } from "./mono";
@@ -273,9 +273,6 @@ export async function renderLabel(
   const label = threshold(gray, width, height, 128);
   if (opts.view === "design") maskToSafeArea(label, spec);
   else applyShapeTransforms(label, spec, design);
-  const print = shiftColumns(
-    cropColumns(label, window.start, window.width),
-    opts.offsetDots ?? 0,
-  );
+  const print = positionOnHead(label, PRINTHEAD_DOTS, opts.offsetDots ?? 0);
   return { label, print, window };
 }

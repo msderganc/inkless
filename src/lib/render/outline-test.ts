@@ -1,13 +1,12 @@
 import { type LabelSpec } from "../catalogue";
-import { DOTS_PER_MM, mmToDots, printWindow } from "../geometry";
-import { safeRegion, traceRegion } from "../shapes";
 import {
-  cropColumns,
-  luminance,
-  type MonoBitmap,
-  shiftColumns,
-  threshold,
-} from "./mono";
+  DOTS_PER_MM,
+  mmToDots,
+  printWindow,
+  PRINTHEAD_DOTS,
+} from "../geometry";
+import { safeRegion, traceRegion } from "../shapes";
+import { positionOnHead, luminance, type MonoBitmap, threshold } from "./mono";
 import { maskToSafeArea, type RenderEnv } from "./render";
 
 /**
@@ -69,6 +68,6 @@ export function outlineTest(
   maskToSafeArea(label, spec);
   return {
     label,
-    print: shiftColumns(cropColumns(label, win.start, win.width), offsetDots),
+    print: positionOnHead(label, PRINTHEAD_DOTS, offsetDots),
   };
 }

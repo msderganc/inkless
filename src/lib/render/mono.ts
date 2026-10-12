@@ -124,6 +124,35 @@ export function shiftColumns(bmp: MonoBitmap, dots: number): MonoBitmap {
   return out;
 }
 
+/**
+ * Place a label raster on a full printhead-width page, then move it by the calibration offset
+ * (positive = right). The B21S print sequence sends rows only, so the printer always takes a
+ * head-width page (see B21SPrintTask).
+ *
+ * Hardware-verified on Matthew's B21S (spec V12): a 31 mm round roll sits against the left end
+ * of the head, so labels narrower than the head are left-aligned. Wider stock (50 mm) overhangs
+ * the 48 mm head and is cropped symmetrically.
+ */
+export function positionOnHead(
+  bmp: MonoBitmap,
+  headDots: number,
+  offsetDots = 0,
+): MonoBitmap {
+  const out = createMono(headDots, bmp.height);
+  const base =
+    bmp.width >= headDots ? Math.floor((headDots - bmp.width) / 2) : 0;
+  const left = base + Math.round(offsetDots);
+  for (let y = 0; y < bmp.height; y++) {
+    const src = y * bmp.width;
+    const dst = y * headDots;
+    for (let x = 0; x < bmp.width; x++) {
+      const dx = left + x;
+      if (dx >= 0 && dx < headDots && bmp.data[src + x]) out.data[dst + dx] = 1;
+    }
+  }
+  return out;
+}
+
 export function blackCount(bmp: MonoBitmap): number {
   let n = 0;
   for (const v of bmp.data) n += v;
