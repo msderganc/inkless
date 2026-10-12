@@ -99,8 +99,11 @@ function openaiError(e: unknown): AiError {
     );
   if (e instanceof OpenAI.RateLimitError)
     return new AiError("OpenAI rate limit reached. Try again in a minute.");
-  if (e instanceof OpenAI.APIConnectionError)
-    return new AiError("Couldn't reach OpenAI. Are you online?");
+  if (e instanceof OpenAI.APIConnectionError) {
+    const cause =
+      e.cause instanceof Error ? ` (${e.cause.message})` : ` (${e.message})`;
+    return new AiError(`Couldn't reach OpenAI. Are you online?${cause}`);
+  }
   if (e instanceof OpenAI.APIError)
     return new AiError(`OpenAI error ${e.status ?? ""}: ${e.message}`);
   return new AiError(e instanceof Error ? e.message : String(e));
@@ -167,6 +170,10 @@ async function askOpenAI(
     apiKey: cfg.apiKey,
     dangerouslyAllowBrowser: true,
     maxRetries: 1,
+    // Plan tokens can't be used from a web page directly (CORS): go via the local server.
+    ...(cfg.chatgptPlan && typeof location !== "undefined"
+      ? { baseURL: `${location.origin}/openai/v1` }
+      : {}),
     ...(cfg.fetch ? { fetch: cfg.fetch } : {}),
   });
   try {
@@ -195,6 +202,18 @@ async function askOpenAI(
       outputTokens: response.usage?.output_tokens ?? 0,
     };
   } catch (e) {
+    if (cfg.chatgptPlan && e instanceof OpenAI.AuthenticationError)
+      throw new AiError(
+        "OpenAI rejected your ChatGPT sign-in. Sign out and sign in again in AI settings.",
+      );
+    if (
+      cfg.chatgptPlan &&
+      e instanceof Error &&
+      e.message.includes("subscription_sharing_usage_limit_exceeded")
+    )
+      throw new AiError(
+        "You've reached your ChatGPT plan's usage limit for apps. Try again later.",
+      );
     throw openaiError(e);
   }
 }
