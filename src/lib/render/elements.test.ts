@@ -160,6 +160,28 @@ describe("icons", () => {
     expect(at(r.label, 20, 15)).toBe(0);
     expect(at(r.label, 10.4, 5.4)).toBe(1);
   });
+
+  it("thickness grows or thins the printed black, a dot per step", async () => {
+    const spec = findLabel("rect-50x30")!;
+    const ring =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="512" height="512"><circle cx="12" cy="12" r="8" fill="none" stroke="#000" stroke-width="3"/></svg>';
+    const ink = async (thickness: number) =>
+      blackCount(
+        (
+          await renderLabel(
+            design(spec, [
+              { ...newIcon(ring, "ring", "ai", 10, 5, 20), thickness },
+            ]),
+            spec,
+            nodeEnv,
+          )
+        ).label,
+      );
+    const [thin, normal, thick] = await Promise.all([ink(-2), ink(0), ink(2)]);
+    expect(thin).toBeLessThan(normal * 0.85);
+    expect(thick).toBeGreaterThan(normal * 1.15);
+    expect(thin).toBeGreaterThan(0);
+  });
 });
 
 describe("curved text", () => {

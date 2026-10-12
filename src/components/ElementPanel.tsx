@@ -60,6 +60,9 @@ interface Props {
 const field = "rounded border border-neutral-300 px-2 py-1";
 const sectionLabel = "text-xs text-neutral-600";
 
+/** Two decimal places is plenty: a printer dot is 0.125 mm. */
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
 function Num({
   label,
   value,
@@ -84,10 +87,10 @@ function Num({
         step={step}
         min={min}
         max={max}
-        value={Number.isFinite(value) ? value : 0}
+        value={Number.isFinite(value) ? round2(value) : 0}
         onChange={(e) => {
           const v = Number(e.target.value);
-          if (Number.isFinite(v)) onChange(v);
+          if (Number.isFinite(v)) onChange(round2(v));
         }}
       />
     </label>
@@ -509,6 +512,10 @@ function IconFields({
           />
         </label>
       )}
+      <ThicknessSlider
+        value={el.thickness}
+        onChange={(thickness) => set({ thickness })}
+      />
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -517,6 +524,42 @@ function IconFields({
         />
         Invert (white icon on black)
       </label>
+    </div>
+  );
+}
+
+/** Thin or thicken the printed black, in printer dots (1 dot = 0.125 mm). */
+function ThicknessSlider({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const label =
+    value === 0
+      ? "as drawn"
+      : `${value > 0 ? "+" : "−"}${(Math.abs(value) * 0.125).toFixed(2)} mm`;
+  return (
+    <div className="space-y-1">
+      <label className="flex items-center gap-2">
+        Thickness
+        <input
+          type="range"
+          min={-4}
+          max={4}
+          step={1}
+          value={value}
+          aria-valuetext={label}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+        <span className="w-16 text-xs tabular-nums">{label}</span>
+      </label>
+      {value < 0 && (
+        <p className="text-xs text-amber-700">
+          Thinning can break very fine lines; check the printed preview.
+        </p>
+      )}
     </div>
   );
 }
@@ -550,6 +593,12 @@ function ImageFields({
           />
           <span className="w-8 text-right tabular-nums">{el.threshold}</span>
         </label>
+      )}
+      {!el.dither && (
+        <ThicknessSlider
+          value={el.thickness}
+          onChange={(thickness) => set({ thickness })}
+        />
       )}
       <label className="flex items-center gap-2">
         <input

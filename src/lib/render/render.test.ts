@@ -185,6 +185,7 @@ describe("renderLabel", () => {
       dither: false,
       threshold: 128,
       invert: false,
+      thickness: 0,
     };
     const normal = blackCount(
       (await renderLabel(design(spec, [img]), spec, nodeEnv)).label,
@@ -306,6 +307,7 @@ describe("renderLabel", () => {
       dither: false,
       threshold: 128,
       invert: false,
+      thickness: 0,
     };
     await expect(
       renderLabel(design(spec, [img]), spec, nodeEnv),
@@ -440,6 +442,7 @@ describe("design schema bounds (untrusted imports)", () => {
       dither: false,
       threshold: 128,
       invert: false,
+      thickness: 0,
     };
     expect(
       designSchema.safeParse({ ...emptyDesign("x"), elements: [huge] }).success,

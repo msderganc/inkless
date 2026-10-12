@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adjustThickness,
   blackCount,
   createMono,
   cropColumns,
@@ -26,6 +27,30 @@ export const rowsOf = (b: MonoBitmap) =>
       .map((v) => (v ? "#" : "."))
       .join(""),
   );
+
+describe("adjustThickness", () => {
+  const dot = () => {
+    const b = createMono(7, 7);
+    b.data[3 * 7 + 3] = 1;
+    return b;
+  };
+
+  it("grows a dot into a rounded blob and thins it away again", () => {
+    const one = adjustThickness(dot(), 1);
+    expect(blackCount(one)).toBe(5); // cross
+    const two = adjustThickness(dot(), 2);
+    expect(blackCount(two)).toBe(21); // 5×5 square minus corners: rounded
+    expect(blackCount(adjustThickness(two, -2))).toBeGreaterThan(0);
+    expect(blackCount(adjustThickness(dot(), -1))).toBe(0);
+    expect(adjustThickness(dot(), 0).data).toEqual(dot().data);
+  });
+
+  it("treats outside the bitmap as white when thinning", () => {
+    const full = createMono(4, 4);
+    full.data.fill(1);
+    expect(blackCount(adjustThickness(full, -1))).toBe(4); // only the inner 2×2 remains
+  });
+});
 
 describe("mono", () => {
   it("luminance treats transparent as white", () => {

@@ -61,6 +61,42 @@ export function dither(
   return bmp;
 }
 
+/**
+ * Grow (dots > 0) or thin (dots < 0) black areas by |dots| printer dots: dilation or erosion,
+ * alternating cross and square neighbourhoods so edges stay roughly round. Outside the bitmap
+ * counts as white.
+ */
+export function adjustThickness(bmp: MonoBitmap, dots: number): MonoBitmap {
+  const { width: w, height: h } = bmp;
+  let cur = bmp.data;
+  const grow = dots > 0;
+  for (let step = 0; step < Math.abs(dots); step++) {
+    const square = step % 2 === 1;
+    const next = new Uint8Array(cur.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        // Grow: black if any neighbour is black. Thin: white if any neighbour is white.
+        let v = cur[i]!;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if ((dx === 0 && dy === 0) || (!square && dx !== 0 && dy !== 0))
+              continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            const n =
+              nx < 0 || ny < 0 || nx >= w || ny >= h ? 0 : cur[ny * w + nx]!;
+            if (grow ? n : !n) v = grow ? 1 : 0;
+          }
+        }
+        next[i] = v;
+      }
+    }
+    cur = next;
+  }
+  return { ...bmp, data: cur };
+}
+
 export function invert(bmp: MonoBitmap): MonoBitmap {
   return { ...bmp, data: bmp.data.map((v) => (v ? 0 : 1)) };
 }

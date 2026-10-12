@@ -55,6 +55,8 @@ export const imageElementSchema = z.object({
   /** 0–255; pixels darker than this print black (threshold mode). */
   threshold: z.number().int().min(0).max(255),
   invert: z.boolean(),
+  /** Grow (+) or thin (−) the printed black by this many printer dots (threshold mode). */
+  thickness: z.number().int().min(-4).max(4).default(0),
 });
 
 export const shapeElementSchema = z.object({
@@ -81,6 +83,8 @@ export const iconElementSchema = z.object({
   name: z.string().max(200),
   source: z.enum(["library", "ai"]),
   invert: z.boolean().default(false),
+  /** Grow (+) or thin (−) the printed black by this many printer dots. */
+  thickness: z.number().int().min(-4).max(4).default(0),
   /** Library icons: line weight on the 24-unit grid (the SVG is regenerated when it changes). */
   weight: z.number().min(0.5).max(6).optional(),
   /** Library icons: Lucide icon key, to regenerate at another weight. */
@@ -186,6 +190,7 @@ export function newIcon(
     h: size,
     rotation: 0,
     invert: false,
+    thickness: 0,
   };
 }
 

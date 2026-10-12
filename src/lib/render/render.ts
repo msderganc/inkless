@@ -23,6 +23,7 @@ import {
   traceRegion,
 } from "../shapes";
 import {
+  adjustThickness,
   dither,
   invert,
   luminance,
@@ -268,6 +269,7 @@ async function drawImage(
   let mono = el.dither
     ? dither(gray, bw, bh)
     : threshold(gray, bw, bh, el.threshold);
+  if (!el.dither && el.thickness) mono = adjustThickness(mono, el.thickness);
   if (el.invert) mono = invert(mono);
   const out = t.createImageData(bw, bh);
   for (let i = 0; i < mono.data.length; i++) {
@@ -351,6 +353,7 @@ function iconAsImage(el: IconElement): ImageElement {
     dither: false,
     threshold: 128,
     invert: el.invert,
+    thickness: el.thickness,
   };
 }
 

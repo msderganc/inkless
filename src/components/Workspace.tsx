@@ -203,7 +203,11 @@ export function Workspace({
       } else setGuides({ xs: [], ys: [] });
       const ddx = fx - start.x;
       const ddy = fy - start.y;
-      onChange(drag.origs.map((o) => ({ ...o, x: o.x + ddx, y: o.y + ddy })));
+      // Snapping and group moves can leave float noise (15.4999…): keep 2 decimals.
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      onChange(
+        drag.origs.map((o) => ({ ...o, x: r2(o.x + ddx), y: r2(o.y + ddy) })),
+      );
     };
     const up = () => {
       setDrag(undefined);

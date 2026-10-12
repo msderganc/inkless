@@ -60,6 +60,7 @@ function resultElement(
     dither: false,
     threshold: 128,
     invert: false,
+    thickness: 0,
   };
 }
 

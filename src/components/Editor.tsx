@@ -336,6 +336,7 @@ export default function Editor() {
       dither: false,
       threshold: 128,
       invert: false,
+      thickness: 0,
     });
     setDialog(undefined);
   };
@@ -368,6 +369,7 @@ export default function Editor() {
       dither: false,
       threshold: 128,
       invert: false,
+      thickness: 0,
     };
     addElement(el);
   };
