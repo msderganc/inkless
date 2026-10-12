@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AiError,
+  categoriesFromModelText,
   generateIcons,
   generateImageIcons,
   ICON_SYSTEM_PROMPT,
@@ -47,6 +48,22 @@ const anthropicMessage = (text: string, stop = "end_turn") => ({
   usage: { input_tokens: 10, output_tokens: 10 },
 });
 
+describe("categoriesFromModelText", () => {
+  it("keeps known categories from the first line, normalised, at most 3", () => {
+    expect(
+      categoriesFromModelText(
+        "Categories: Animals, Food & Beverage, made-up, nature, home\n<svg/>",
+      ),
+    ).toEqual(["animals", "food-beverage", "nature"]);
+    expect(categoriesFromModelText("<svg></svg>")).toEqual([]);
+  });
+
+  it("asks the model for categories from the library list", () => {
+    expect(ICON_SYSTEM_PROMPT).toContain("Categories:");
+    expect(ICON_SYSTEM_PROMPT).toContain("food-beverage");
+  });
+});
+
 describe("svgsFromModelText", () => {
   it("extracts, sanitises and de-duplicates icons, dropping broken ones", () => {
     const out = svgsFromModelText(
@@ -71,6 +88,7 @@ describe("generateIcons — Anthropic", () => {
       "a cat",
     );
     expect(result.items).toHaveLength(2);
+    expect(result.categories).toEqual([]);
     expect(result.usage).toMatchObject({
       provider: "anthropic",
       billing: "api-key",

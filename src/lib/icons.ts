@@ -111,6 +111,53 @@ export async function loadIconLibrary(): Promise<LibraryIcon[]> {
   return (await loadIconCatalog()).icons;
 }
 
+/**
+ * Guess categories for free text (e.g. an AI prompt) from library icons whose name or tags
+ * contain its words: "sleeping cat" → animals. Returns up to `max`, most votes first.
+ */
+export function guessCategories(
+  all: LibraryIcon[],
+  text: string,
+  max = 3,
+): string[] {
+  const words = text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3);
+  if (words.length === 0) return [];
+  const votes = new Map<string, number>();
+  for (const icon of all) {
+    if (icon.alias || icon.categories.length === 0) continue;
+    const nameWords = icon.name.split(" ");
+    const hit = words.some(
+      (w) =>
+        nameWords.includes(w) ||
+        nameWords.includes(w.replace(/s$/, "")) ||
+        icon.tags.includes(w),
+    );
+    if (!hit) continue;
+    for (const c of icon.categories) votes.set(c, (votes.get(c) ?? 0) + 1);
+  }
+  const ranked = [...votes.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  );
+  // Drop weak side matches ("cup" also matches a trophy): keep those near the best.
+  const best = ranked[0]?.[1] ?? 0;
+  return ranked
+    .filter(([, v]) => v * 2 >= best)
+    .slice(0, max)
+    .map(([c]) => c);
+}
+
+/** guessCategories against the full library (loads it if needed); [] if it can't load. */
+export async function guessIconCategories(text: string): Promise<string[]> {
+  try {
+    return guessCategories(await loadIconLibrary(), text);
+  } catch {
+    return [];
+  }
+}
+
 /** Icons in a category and/or starting with a letter ("#" = digits). */
 export function filterIcons(
   all: LibraryIcon[],

@@ -16,6 +16,7 @@ import {
 } from "~/lib/ai/chatgpt-auth";
 import { PROVIDER_NAMES } from "~/lib/ai/models";
 import { type UsageEntry } from "~/lib/ai/pricing";
+import { guessIconCategories } from "~/lib/icons";
 import { customRect } from "~/lib/catalogue";
 import { type DesignElement, emptyDesign, newIcon, newId } from "~/lib/design";
 import { browserEnv } from "~/lib/render/browser-env";
@@ -132,6 +133,7 @@ export function AiIconDialog({
   /** Indexes of results saved to My icons (reset with each generation). */
   const [savedIdx, setSavedIdx] = useState<number[]>([]);
   const [resultsPrompt, setResultsPrompt] = useState("");
+  const [resultsCategories, setResultsCategories] = useState<string[]>([]);
   const [sizeMm, setSizeMm] = useState(15);
   const abort = useRef<AbortController | undefined>(undefined);
 
@@ -174,10 +176,14 @@ export function AiIconDialog({
 
   const save = async (result: AiResult, i: number) => {
     try {
+      const name = (resultsPrompt || "AI icon").slice(0, 80);
       await store.saveIcon({
         id: newId(),
-        name: (resultsPrompt || "AI icon").slice(0, 80),
+        name,
         createdAt: Date.now(),
+        categories: resultsCategories.length
+          ? resultsCategories
+          : await guessIconCategories(name),
         ...result,
       });
       setSavedIdx((s) => [...s, i]);
@@ -220,6 +226,7 @@ export function AiIconDialog({
         setResults(out);
         setSavedIdx([]);
         setResultsPrompt(prompt.trim());
+        setResultsCategories(result.categories);
       }
     } catch (e) {
       // A refused or unusable answer was still billed: record it.

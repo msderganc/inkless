@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { ICON_CATEGORIES } from "../icon-categories";
 import { extractSvgs, sanitizeSvg } from "../svg";
 import { type AiProvider } from "./models";
 import { anthropicCost, type UsageEntry } from "./pricing";
@@ -29,6 +30,8 @@ interface Answer {
 export interface GenerationResult {
   /** Sanitised SVGs (vector) or PNG data URLs (image models). */
   items: string[];
+  /** Icon library categories the model chose (vector icons only; may be empty). */
+  categories: string[];
   usage: UsageEntry;
 }
 
@@ -49,7 +52,9 @@ export const ICON_COUNT = 4;
  */
 export const ICON_SYSTEM_PROMPT = `You design icons for a small thermal label printer (203 DPI, pure black and white, no greys). Icons are printed about 10-25 mm wide.
 
-Output exactly ${ICON_COUNT} different SVG icons for the user's request, each as a complete <svg>...</svg> block, and nothing else (no prose, no code fences).
+First output one line "Categories: " followed by 1-3 categories that fit the request, comma-separated, chosen only from: ${ICON_CATEGORIES.join(", ")}.
+
+Then output exactly ${ICON_COUNT} different SVG icons for the user's request, each as a complete <svg>...</svg> block, and nothing else (no other prose, no code fences).
 
 Every SVG must follow these rules:
 - viewBox="0 0 100 100", with about 6 units of empty margin on every side; centred.
@@ -233,6 +238,22 @@ async function askOpenAI(
   }
 }
 
+/** The "Categories: a, b" line from model output, keeping only known categories (max 3). */
+export function categoriesFromModelText(text: string): string[] {
+  const line = /^\s*categories\s*:\s*(.+)$/im.exec(text)?.[1] ?? "";
+  const known = new Set<string>(ICON_CATEGORIES);
+  const out: string[] = [];
+  for (const raw of line.split(/[,;]/)) {
+    const c = raw
+      .trim()
+      .toLowerCase()
+      .replace(/\s*&\s*|\s+/g, "-")
+      .replace(/[^a-z-]/g, "");
+    if (known.has(c) && !out.includes(c)) out.push(c);
+  }
+  return out.slice(0, 3);
+}
+
 /** Raw model text → sanitised, de-duplicated monochrome SVGs (invalid ones are dropped). */
 export function svgsFromModelText(text: string): string[] {
   const out: string[] = [];
@@ -294,7 +315,11 @@ export async function generateIcons(
       usage,
       answer.text.slice(0, 4000),
     );
-  return { items: svgs.slice(0, ICON_COUNT), usage };
+  return {
+    items: svgs.slice(0, ICON_COUNT),
+    categories: categoriesFromModelText(answer.text),
+    usage,
+  };
 }
 
 /**
@@ -370,7 +395,7 @@ export async function generateImageIcons(
         "The image model didn't return a picture. Try again or rephrase.",
         usage,
       );
-    return { items: urls, usage };
+    return { items: urls, categories: [], usage };
   } catch (e) {
     if (e instanceof AiError) throw e;
     throw openaiError(e);

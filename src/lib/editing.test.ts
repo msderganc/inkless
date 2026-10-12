@@ -5,11 +5,13 @@ import { designUsesBatch, emptyDesign, newText } from "./design";
 import {
   categoryLabel,
   filterIcons,
+  guessCategories,
   iconDisplayName,
   loadIconCatalog,
   lucideToSvg,
   searchIcons,
 } from "./icons";
+import { ICON_CATEGORIES } from "./icon-categories";
 import { boxLines, snapMove, unionBox } from "./snap";
 
 describe("snapMove", () => {
@@ -109,6 +111,11 @@ describe("icon library helpers", () => {
     expect(alias?.categories.length).toBeGreaterThan(0);
     expect(icons.find((i) => i.key === "CircleAlert")?.alias).toBeUndefined();
     expect(categoryLabel("food-beverage")).toBe("Food & beverage");
+    expect(guessCategories(icons, "sleeping cat")).toContain("animals");
+    expect(guessCategories(icons, "coffee cup")).toContain("food-beverage");
+    expect(guessCategories(icons, "xq zz")).toEqual([]);
+    // The list in the AI prompt matches the library's.
+    expect([...ICON_CATEGORIES]).toEqual(categories);
   });
 });
 

@@ -14,6 +14,7 @@ import {
   Redo2,
   Shapes,
   Sparkles,
+  BookmarkCheck,
   Spline,
   Square,
   Trash2,
@@ -62,7 +63,8 @@ import { DEFAULT_ZOOM, Workspace, WorkspaceLegend } from "./Workspace";
 const DEFAULT_LABEL = "rect-50x30";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
-type Dialog = "library" | "ai" | "ai-settings" | "usage" | undefined;
+type Dialog =
+  "library" | "my-icons" | "ai" | "ai-settings" | "usage" | undefined;
 
 export default function Editor() {
   const { store, session, settings, updateSettings, overrides, initialDraft } =
@@ -600,6 +602,11 @@ export default function Editor() {
                 onClick={() => setDialog("library")}
               />
               <IconButton
+                icon={BookmarkCheck}
+                label="My icons (saved)"
+                onClick={() => setDialog("my-icons")}
+              />
+              <IconButton
                 icon={Sparkles}
                 label="AI icon generator"
                 onClick={() => setDialog("ai")}
@@ -849,8 +856,9 @@ export default function Editor() {
         </aside>
       </div>
 
-      {dialog === "library" && (
+      {(dialog === "library" || dialog === "my-icons") && (
         <IconLibraryDialog
+          initialMine={dialog === "my-icons"}
           onClose={() => setDialog(undefined)}
           onPick={(svg, name, key, weight) =>
             addIcon(svg, name, "library", key, weight)

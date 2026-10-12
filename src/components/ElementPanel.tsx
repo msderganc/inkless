@@ -31,7 +31,7 @@ import {
   newId,
   type TextElement,
 } from "~/lib/design";
-import { loadIconLibrary, lucideToSvg } from "~/lib/icons";
+import { guessIconCategories, loadIconLibrary, lucideToSvg } from "~/lib/icons";
 import { useState } from "react";
 import {
   canListInstalledFonts,
@@ -469,6 +469,7 @@ function IconFields({
         id: newId(),
         name: el.name.slice(0, 80) || "AI icon",
         createdAt: Date.now(),
+        categories: await guessIconCategories(el.name),
         type: "svg",
         data: el.svg,
       });

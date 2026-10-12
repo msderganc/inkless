@@ -10,7 +10,11 @@ beforeEach(async () => {
 
 afterEach(() => store.close());
 
-const svgIcon = (id: string, createdAt = 1, data?: string): SavedIcon => ({
+const svgIcon = (
+  id: string,
+  createdAt = 1,
+  data?: string,
+): Omit<SavedIcon, "categories"> & { categories?: string[] } => ({
   id,
   name: `icon ${id}`,
   createdAt,
@@ -34,6 +38,19 @@ describe("My icons", () => {
     expect((await store.listIcons()).map((i) => i.id)).toEqual(["p", "b", "a"]);
     await store.deleteIcon("b");
     expect((await store.listIcons()).map((i) => i.id)).toEqual(["p", "a"]);
+  });
+
+  it("keeps categories; icons saved before categories existed get none", async () => {
+    await store.saveIcon({ ...svgIcon("cat"), categories: ["animals"] });
+    await store.saveIcon(svgIcon("old"));
+    const byId = Object.fromEntries(
+      (await store.listIcons()).map((i) => [i.id, i]),
+    );
+    expect(byId.cat!.categories).toEqual(["animals"]);
+    expect(byId.old!.categories).toEqual([]);
+    await expect(
+      store.saveIcon({ ...svgIcon("bad"), categories: ["<script>"] }),
+    ).rejects.toThrow();
   });
 
   it("sanitises SVGs and rejects non-PNG pictures", async () => {

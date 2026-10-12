@@ -6,6 +6,7 @@ import {
   categoryLabel,
   DEFAULT_ICON_WEIGHT,
   filterIcons,
+  guessCategories,
   type LibraryIcon,
   loadIconCatalog,
   lucideToSvg,
@@ -38,7 +39,10 @@ export function IconLibraryDialog({
   onClose,
   onPick,
   onPickSaved,
+  initialMine = false,
 }: {
+  /** Open on the "My icons" tab. */
+  initialMine?: boolean;
   onClose: () => void;
   onPick: (svg: string, name: string, key: string, weight: number) => void;
   onPickSaved: (icon: SavedIcon) => void;
@@ -49,7 +53,9 @@ export function IconLibraryDialog({
   const [saved, setSaved] = useState<SavedIcon[]>();
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>();
+  const [category, setCategory] = useState<string | undefined>(
+    initialMine ? MINE : undefined,
+  );
   const [letter, setLetter] = useState<string>();
   const [weight, setWeight] = useState(DEFAULT_ICON_WEIGHT);
 
@@ -72,6 +78,19 @@ export function IconLibraryDialog({
   );
   useEffect(loadSaved, [loadSaved]);
 
+  // Icons saved before categories existed: tag them once from their names.
+  useEffect(() => {
+    if (!all || !saved) return;
+    const untagged = saved.filter((i) => i.categories.length === 0);
+    const updates = untagged
+      .map((i) => ({ ...i, categories: guessCategories(all, i.name) }))
+      .filter((i) => i.categories.length > 0);
+    if (updates.length === 0) return;
+    void Promise.all(updates.map((i) => store.saveIcon(i)))
+      .then(loadSaved)
+      .catch(() => undefined);
+  }, [all, saved, store, loadSaved]);
+
   const mine = category === MINE;
   const results = useMemo(() => {
     if (!all || mine) return [];
@@ -88,11 +107,35 @@ export function IconLibraryDialog({
     return (saved ?? []).filter((i) => {
       const n = i.name.toLowerCase();
       return (
+        (!category || category === MINE || i.categories.includes(category)) &&
         (!q || q.split(/\s+/).every((t) => n.includes(t))) &&
         (!letter || (letter === "#" ? /^[0-9]/.test(n) : n.startsWith(letter)))
       );
     });
-  }, [saved, query, letter]);
+  }, [saved, query, letter, category]);
+
+  const savedButton = (icon: SavedIcon, size = "size-12") => (
+    <button
+      type="button"
+      title={
+        icon.categories.length
+          ? `${icon.name} (${icon.categories.map(categoryLabel).join(", ")})`
+          : icon.name
+      }
+      aria-label={`Add saved icon: ${icon.name}`}
+      className="bg-paper flex w-full flex-col items-center gap-1 rounded border border-neutral-200 p-2 text-[10px] hover:border-sky-500"
+      onClick={() => onPickSaved(icon)}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- data: URL, no optimisation needed */}
+      <img src={savedSrc(icon)} alt="" className={size} />
+      <span
+        className="w-full truncate text-center"
+        style={{ color: "#525252" }}
+      >
+        {icon.name}
+      </span>
+    </button>
+  );
 
   const remove = async (icon: SavedIcon) => {
     if (!window.confirm(`Delete "${icon.name}" from My icons?`)) return;
@@ -215,22 +258,7 @@ export function IconLibraryDialog({
               <ul className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
                 {savedShown.map((icon) => (
                   <li key={icon.id} className="relative">
-                    <button
-                      type="button"
-                      title={icon.name}
-                      aria-label={`Add saved icon: ${icon.name}`}
-                      className="bg-paper flex w-full flex-col items-center gap-1 rounded border border-neutral-200 p-2 text-[10px] hover:border-sky-500"
-                      onClick={() => onPickSaved(icon)}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element -- data: URL, no optimisation needed */}
-                      <img src={savedSrc(icon)} alt="" className="size-12" />
-                      <span
-                        className="w-full truncate text-center"
-                        style={{ color: "#525252" }}
-                      >
-                        {icon.name}
-                      </span>
-                    </button>
+                    {savedButton(icon)}
                     <button
                       type="button"
                       title="Delete from My icons"
@@ -247,6 +275,32 @@ export function IconLibraryDialog({
           </>
         ) : (
           <>
+            {savedShown.length > 0 && (
+              <section aria-label="My icons" className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+                    My icons
+                  </h3>
+                  {savedShown.length > 10 && (
+                    <button
+                      type="button"
+                      className="text-xs text-sky-700 underline"
+                      onClick={() => setCategory(MINE)}
+                    >
+                      Show all {savedShown.length}
+                    </button>
+                  )}
+                </div>
+                <ul className="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2">
+                  {savedShown.slice(0, 10).map((icon) => (
+                    <li key={icon.id}>{savedButton(icon, "size-10")}</li>
+                  ))}
+                </ul>
+                <h3 className="pt-2 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+                  Library
+                </h3>
+              </section>
+            )}
             <p className="text-xs text-neutral-500">
               {all
                 ? `${count} icon${count === 1 ? "" : "s"}${

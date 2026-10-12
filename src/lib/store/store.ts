@@ -66,6 +66,12 @@ export const EXPORT_SCHEMA = 1;
 /** Saved "My icons" limit. */
 export const MAX_SAVED_ICONS = 500;
 
+/** Icon library categories of a saved icon (older saves have none). */
+const savedCategories = z
+  .array(z.string().regex(/^[a-z0-9-]{1,40}$/))
+  .max(10)
+  .default([]);
+
 /** An icon the user saved for reuse (AI-generated SVG or image-model PNG). */
 export const savedIconSchema = z.discriminatedUnion("type", [
   z.object({
@@ -74,6 +80,7 @@ export const savedIconSchema = z.discriminatedUnion("type", [
     createdAt: z.number(),
     type: z.literal("svg"),
     data: z.string().min(1).max(MAX_SVG_CHARS),
+    categories: savedCategories,
   }),
   z.object({
     id: z.string().min(1).max(64),
@@ -84,6 +91,7 @@ export const savedIconSchema = z.discriminatedUnion("type", [
       .string()
       .max(MAX_IMAGE_SRC_CHARS)
       .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/),
+    categories: savedCategories,
   }),
 ]);
 export type SavedIcon = z.infer<typeof savedIconSchema>;
@@ -236,7 +244,7 @@ export class Store {
   }
 
   /** Save an icon (SVGs are re-sanitised). Throws when the collection is full. */
-  async saveIcon(icon: SavedIcon): Promise<void> {
+  async saveIcon(icon: z.input<typeof savedIconSchema>): Promise<void> {
     const clean = savedIconSchema.parse(
       icon.type === "svg" ? { ...icon, data: sanitizeSvg(icon.data) } : icon,
     );
