@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { extractSvgs, sanitizeSvg } from "../svg";
 import { type AiProvider } from "./models";
+import { anthropicCost, type UsageEntry } from "./pricing";
 
 export interface AiConfig {
   provider: AiProvider;
@@ -9,6 +10,26 @@ export interface AiConfig {
   model: string;
   /** Test seam: replaces the network layer of both SDK clients. */
   fetch?: typeof fetch;
+  /**
+   * OpenAI only: `apiKey` is a "Sign in with ChatGPT" access token, billed to the ChatGPT plan.
+   * That route requires streamed, unstored Responses requests with input as an array.
+   */
+  chatgptPlan?: boolean;
+}
+
+/** Text a model returned plus what it cost in tokens. */
+interface Answer {
+  text: string;
+  /** Model that served the request (a fallback model if the requested one declined). */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface GenerationResult {
+  /** Sanitised SVGs (vector) or PNG data URLs (image models). */
+  items: string[];
+  usage: UsageEntry;
 }
 
 /** Claude models that accept server-side refusal fallbacks (`fallbacks: "default"`). */
@@ -40,7 +61,14 @@ Every SVG must follow these rules:
 
 Make the ${ICON_COUNT} icons distinct: for example a solid silhouette, a thick outline, a rounded friendly version and a geometric version.`;
 
-export class AiError extends Error {}
+export class AiError extends Error {
+  /** Set when the request was billed even though no usable icon came back. */
+  usage?: UsageEntry;
+  constructor(message: string, usage?: UsageEntry) {
+    super(message);
+    this.usage = usage;
+  }
+}
 
 function anthropicError(e: unknown): AiError {
   if (e instanceof Anthropic.AuthenticationError)
@@ -82,7 +110,7 @@ async function askAnthropic(
   cfg: AiConfig,
   prompt: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<Answer> {
   // The user's own key, used only from this browser (local app, no server).
   const client = new Anthropic({
     apiKey: cfg.apiKey,
@@ -109,14 +137,21 @@ async function askAnthropic(
       },
       { signal },
     );
+    const answer: Answer = {
+      text: response.content
+        .map((b) => (b.type === "text" ? b.text : ""))
+        .join("\n"),
+      model: response.model,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    };
     if (response.stop_reason === "refusal") {
       throw new AiError(
         "The model declined this request. Try describing the icon differently.",
+        usageEntry(cfg, answer, prompt, "vector"),
       );
     }
-    return response.content
-      .map((b) => (b.type === "text" ? b.text : ""))
-      .join("\n");
+    return answer;
   } catch (e) {
     if (e instanceof AiError) throw e;
     throw anthropicError(e);
@@ -127,7 +162,7 @@ async function askOpenAI(
   cfg: AiConfig,
   prompt: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<Answer> {
   const client = new OpenAI({
     apiKey: cfg.apiKey,
     dangerouslyAllowBrowser: true,
@@ -135,15 +170,30 @@ async function askOpenAI(
     ...(cfg.fetch ? { fetch: cfg.fetch } : {}),
   });
   try {
-    const response = await client.responses.create(
-      {
-        model: cfg.model,
-        instructions: ICON_SYSTEM_PROMPT,
-        input: `Icon request: ${prompt}`,
-      },
-      { signal },
-    );
-    return response.output_text;
+    const input = `Icon request: ${prompt}`;
+    const response = cfg.chatgptPlan
+      ? // ChatGPT plan route: stream: true, store: false, input as an array (OpenAI requirements).
+        await client.responses
+          .stream(
+            {
+              model: cfg.model,
+              instructions: ICON_SYSTEM_PROMPT,
+              input: [{ role: "user", content: input }],
+              store: false,
+            },
+            { signal },
+          )
+          .finalResponse()
+      : await client.responses.create(
+          { model: cfg.model, instructions: ICON_SYSTEM_PROMPT, input },
+          { signal },
+        );
+    return {
+      text: response.output_text,
+      model: response.model,
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+    };
   } catch (e) {
     throw openaiError(e);
   }
@@ -163,26 +213,51 @@ export function svgsFromModelText(text: string): string[] {
   return out;
 }
 
+function usageEntry(
+  cfg: AiConfig,
+  a: Answer,
+  prompt: string,
+  kind: UsageEntry["kind"],
+): UsageEntry {
+  const plan = cfg.provider === "openai" && !!cfg.chatgptPlan;
+  return {
+    at: Date.now(),
+    provider: cfg.provider,
+    billing: plan ? "chatgpt-plan" : "api-key",
+    model: a.model || cfg.model,
+    inputTokens: a.inputTokens,
+    outputTokens: a.outputTokens,
+    costUsd:
+      cfg.provider === "anthropic"
+        ? anthropicCost(a.model || cfg.model, a.inputTokens, a.outputTokens)
+        : undefined,
+    prompt: prompt.slice(0, 120),
+    kind,
+  };
+}
+
 /** Generate up to ICON_COUNT print-ready icon variations for a text request. */
 export async function generateIcons(
   cfg: AiConfig,
   prompt: string,
   signal?: AbortSignal,
-): Promise<string[]> {
+): Promise<GenerationResult> {
   const request = prompt.trim();
   if (!request) throw new AiError("Describe the icon first.");
   if (!cfg.apiKey.trim())
     throw new AiError("Add your API key in Settings first.");
-  const text =
+  const answer =
     cfg.provider === "anthropic"
       ? await askAnthropic(cfg, request, signal)
       : await askOpenAI(cfg, request, signal);
-  const svgs = svgsFromModelText(text);
+  const usage = usageEntry(cfg, answer, request, "vector");
+  const svgs = svgsFromModelText(answer.text);
   if (svgs.length === 0)
     throw new AiError(
       "The model didn't return a usable icon. Try again or rephrase.",
+      usage,
     );
-  return svgs.slice(0, ICON_COUNT);
+  return { items: svgs.slice(0, ICON_COUNT), usage };
 }
 
 /**
@@ -207,11 +282,15 @@ export async function generateImageIcons(
   cfg: AiConfig,
   prompt: string,
   signal?: AbortSignal,
-): Promise<string[]> {
+): Promise<GenerationResult> {
   const request = prompt.trim();
   if (!request) throw new AiError("Describe the icon first.");
   if (!cfg.apiKey.trim())
     throw new AiError("Add your API key in Settings first.");
+  if (cfg.chatgptPlan)
+    throw new AiError(
+      "Image models can't be used with a ChatGPT plan sign-in. Use the vector style or an API key.",
+    );
   const client = new OpenAI({
     apiKey: cfg.apiKey,
     dangerouslyAllowBrowser: true,
@@ -238,11 +317,23 @@ export async function generateImageIcons(
           typeof b === "string" && b.length > 0 && b.length < MAX_IMAGE_B64,
       )
       .map((b) => `data:image/png;base64,${b}`);
+    const usage = usageEntry(
+      cfg,
+      {
+        text: "",
+        model: cfg.model,
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+      },
+      request,
+      "image",
+    );
     if (urls.length === 0)
       throw new AiError(
         "The image model didn't return a picture. Try again or rephrase.",
+        usage,
       );
-    return urls;
+    return { items: urls, usage };
   } catch (e) {
     if (e instanceof AiError) throw e;
     throw openaiError(e);

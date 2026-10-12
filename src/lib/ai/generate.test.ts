@@ -61,7 +61,7 @@ describe("svgsFromModelText", () => {
 describe("generateIcons — Anthropic", () => {
   it("calls the Messages API from the browser with the user's key, fallbacks and the thermal prompt", async () => {
     const calls: Call[] = [];
-    const svgs = await generateIcons(
+    const result = await generateIcons(
       {
         provider: "anthropic",
         apiKey: "sk-ant-test",
@@ -70,7 +70,18 @@ describe("generateIcons — Anthropic", () => {
       },
       "a cat",
     );
-    expect(svgs).toHaveLength(2);
+    expect(result.items).toHaveLength(2);
+    expect(result.usage).toMatchObject({
+      provider: "anthropic",
+      billing: "api-key",
+      model: "claude-opus-5-5",
+      inputTokens: 10,
+      outputTokens: 10,
+      kind: "vector",
+      prompt: "a cat",
+    });
+    // 10 in × $4/MTok + 10 out × $20/MTok
+    expect(result.usage.costUsd).toBeCloseTo(0.00024, 8);
     const call = calls[0]!;
     expect(call.url).toMatch(/\/v1\/messages/);
     expect(call.headers.get("x-api-key")).toBe("sk-ant-test");
@@ -120,6 +131,12 @@ describe("generateIcons — Anthropic", () => {
     await expect(run(200, anthropicMessage("", "refusal"))).rejects.toThrow(
       /declined/,
     );
+    // A refusal is still billed, so the error carries its usage.
+    const refused = await run(200, anthropicMessage("", "refusal")).catch(
+      (e: unknown) => e,
+    );
+    expect(refused).toBeInstanceOf(AiError);
+    expect((refused as AiError).usage).toMatchObject({ inputTokens: 10 });
     await expect(
       run(401, {
         type: "error",
@@ -135,7 +152,7 @@ describe("generateIcons — Anthropic", () => {
 describe("generateIcons — OpenAI", () => {
   it("calls the Responses API with the user's key and reads output_text", async () => {
     const calls: Call[] = [];
-    const svgs = await generateIcons(
+    const result = await generateIcons(
       {
         provider: "openai",
         apiKey: "sk-openai-test",
@@ -148,6 +165,13 @@ describe("generateIcons — OpenAI", () => {
             created_at: 0,
             status: "completed",
             model: "gpt-5.5",
+            usage: {
+              input_tokens: 7,
+              output_tokens: 9,
+              total_tokens: 16,
+              input_tokens_details: { cached_tokens: 0 },
+              output_tokens_details: { reasoning_tokens: 0 },
+            },
             output: [
               {
                 type: "message",
@@ -165,7 +189,14 @@ describe("generateIcons — OpenAI", () => {
       },
       "a box",
     );
-    expect(svgs).toHaveLength(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.usage).toMatchObject({
+      provider: "openai",
+      billing: "api-key",
+      inputTokens: 7,
+      outputTokens: 9,
+      costUsd: undefined,
+    });
     expect(calls[0]!.url).toMatch(/\/responses/);
     expect(calls[0]!.headers.get("authorization")).toBe(
       "Bearer sk-openai-test",
@@ -198,7 +229,7 @@ describe("generateIcons — OpenAI", () => {
 describe("generateImageIcons — OpenAI image models", () => {
   it("calls the Images API asking for opaque PNGs and returns data URLs", async () => {
     const calls: Call[] = [];
-    const urls = await generateImageIcons(
+    const { items: urls, usage } = await generateImageIcons(
       {
         provider: "openai",
         apiKey: "sk-openai-test",
@@ -218,6 +249,11 @@ describe("generateImageIcons — OpenAI image models", () => {
       "data:image/png;base64,iVBORw0KGgo=",
       "data:image/png;base64,AAAA",
     ]);
+    expect(usage).toMatchObject({
+      provider: "openai",
+      kind: "image",
+      billing: "api-key",
+    });
     expect(calls[0]!.url).toMatch(/\/images\/generations/);
     expect(calls[0]!.body).toMatchObject({
       model: "gpt-image-2",
@@ -276,5 +312,104 @@ describe("generateIcons — input checks", () => {
       ),
     ).rejects.toThrow(/API key/);
     expect(calls).toHaveLength(0);
+  });
+});
+
+function sseFetch(events: unknown[], calls: Call[]): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input instanceof Request ? input.url : input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(
+        typeof init?.body === "string" ? init.body : "{}",
+      ) as Record<string, unknown>,
+    });
+    const text = events
+      .map(
+        (e) =>
+          `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`,
+      )
+      .join("");
+    return new Response(text, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  };
+}
+
+describe("generateIcons — ChatGPT plan sign-in", () => {
+  it("streams an unstored Responses request with the access token and records plan billing", async () => {
+    const calls: Call[] = [];
+    const response = (status: string, output: unknown[]) => ({
+      id: "resp_1",
+      object: "response",
+      created_at: 0,
+      status,
+      model: "gpt-6.1-sol",
+      output,
+      usage: {
+        input_tokens: 5,
+        output_tokens: 6,
+        total_tokens: 11,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 },
+      },
+    });
+    const message = {
+      type: "message",
+      id: "m1",
+      role: "assistant",
+      status: "completed",
+      content: [{ type: "output_text", text: SVG_A, annotations: [] }],
+    };
+    const result = await generateIcons(
+      {
+        provider: "openai",
+        apiKey: "chatgpt-access-token",
+        model: "gpt-6.1-sol",
+        chatgptPlan: true,
+        fetch: sseFetch(
+          [
+            {
+              type: "response.created",
+              sequence_number: 0,
+              response: response("in_progress", []),
+            },
+            {
+              type: "response.completed",
+              sequence_number: 1,
+              response: response("completed", [message]),
+            },
+          ],
+          calls,
+        ),
+      },
+      "a cat",
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.usage).toMatchObject({
+      billing: "chatgpt-plan",
+      costUsd: undefined,
+      model: "gpt-6.1-sol",
+    });
+    expect(calls[0]!.headers.get("authorization")).toBe(
+      "Bearer chatgpt-access-token",
+    );
+    expect(calls[0]!.body).toMatchObject({ stream: true, store: false });
+    expect(Array.isArray(calls[0]!.body.input)).toBe(true);
+  });
+
+  it("refuses image models on a plan sign-in", async () => {
+    await expect(
+      generateImageIcons(
+        {
+          provider: "openai",
+          apiKey: "t",
+          model: "gpt-image-2",
+          chatgptPlan: true,
+        },
+        "x",
+      ),
+    ).rejects.toThrow(/ChatGPT plan/);
   });
 });

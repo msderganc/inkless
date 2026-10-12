@@ -1,6 +1,14 @@
 "use client";
 
-import { Eye, EyeOff, Save } from "lucide-react";
+import { Eye, EyeOff, LogIn, LogOut, Save } from "lucide-react";
+import {
+  buildAuthorizeUrl,
+  CALLBACK_PORT,
+  type ChatgptAuth,
+  isSignedIn,
+  newPendingSignIn,
+  signOut,
+} from "~/lib/ai/chatgpt-auth";
 import { useEffect, useState } from "react";
 import {
   type AiProvider,
@@ -87,37 +95,69 @@ export function AiSettingsDialog({ onClose }: { onClose: () => void }) {
             ))}
           </fieldset>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-neutral-600">
-              {PROVIDER_NAMES[p]} API key ·{" "}
-              <a
-                className="text-sky-700 underline"
-                href={KEY_LINKS[p]}
-                target="_blank"
-                rel="noreferrer"
-              >
-                get a key
-              </a>
-            </span>
-            <span className="flex gap-1">
-              <input
-                className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 font-mono"
-                type={show ? "text" : "password"}
-                autoComplete="off"
-                spellCheck={false}
-                value={value[keyField]}
-                placeholder={p === "anthropic" ? "sk-ant-…" : "sk-…"}
-                onChange={(e) => set({ [keyField]: e.target.value })}
-              />
-              <IconButton
-                icon={show ? EyeOff : Eye}
-                label={show ? "Hide key" : "Show key"}
-                onClick={() => setShow(!show)}
-              />
-            </span>
-          </label>
-
           {p === "openai" && (
+            <fieldset className="space-y-1">
+              <legend className="mb-1 text-xs text-neutral-600">
+                Pay with
+              </legend>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="openaiAuth"
+                  checked={value.openaiAuth === "key"}
+                  onChange={() => set({ openaiAuth: "key" })}
+                />
+                API key (billed to your OpenAI API account)
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="openaiAuth"
+                  checked={value.openaiAuth === "chatgpt"}
+                  onChange={() =>
+                    set({ openaiAuth: "chatgpt", iconStyle: "vector" })
+                  }
+                />
+                My ChatGPT plan (Sign in with ChatGPT)
+              </label>
+            </fieldset>
+          )}
+
+          {p === "openai" && value.openaiAuth === "chatgpt" ? (
+            <ChatgptSignIn onSignedOut={() => setSaved(undefined)} />
+          ) : (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-600">
+                {PROVIDER_NAMES[p]} API key ·{" "}
+                <a
+                  className="text-sky-700 underline"
+                  href={KEY_LINKS[p]}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  get a key
+                </a>
+              </span>
+              <span className="flex gap-1">
+                <input
+                  className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 font-mono"
+                  type={show ? "text" : "password"}
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={value[keyField]}
+                  placeholder={p === "anthropic" ? "sk-ant-…" : "sk-…"}
+                  onChange={(e) => set({ [keyField]: e.target.value })}
+                />
+                <IconButton
+                  icon={show ? EyeOff : Eye}
+                  label={show ? "Hide key" : "Show key"}
+                  onClick={() => setShow(!show)}
+                />
+              </span>
+            </label>
+          )}
+
+          {p === "openai" && value.openaiAuth === "key" && (
             <fieldset className="space-y-1">
               <legend className="mb-1 text-xs text-neutral-600">
                 Icon style
@@ -154,7 +194,9 @@ export function AiSettingsDialog({ onClose }: { onClose: () => void }) {
             </fieldset>
           )}
 
-          {p === "openai" && value.iconStyle === "image" ? (
+          {p === "openai" &&
+          value.openaiAuth === "key" &&
+          value.iconStyle === "image" ? (
             <ModelPicker
               key={`${p}-${value.iconStyle}`}
               label="Image model"
@@ -249,6 +291,88 @@ function ModelPicker({
           onChange={(e) => onChange(e.target.value)}
         />
       )}
+    </div>
+  );
+}
+
+/** "Sign in with ChatGPT" status and buttons. */
+function ChatgptSignIn({ onSignedOut }: { onSignedOut: () => void }) {
+  const { store } = useApp();
+  const [auth, setAuth] = useState<ChatgptAuth>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    void store.getChatgptAuth().then(setAuth);
+  }, [store]);
+
+  const signIn = async () => {
+    setError(undefined);
+    setBusy(true);
+    try {
+      // OpenAI only redirects to 127.0.0.1, where the app's local server forwards the code.
+      const ok = await fetch(`http://127.0.0.1:${CALLBACK_PORT}/health`, {
+        cache: "no-store",
+      })
+        .then((r) => r.ok)
+        .catch(() => false);
+      if (!ok) {
+        setError(
+          "Start the local server first (npm run serve), then try again. It's only needed while signing in.",
+        );
+        return;
+      }
+      const current = auth ?? (await store.getChatgptAuth());
+      const pending = newPendingSignIn();
+      await store.savePendingSignIn(pending);
+      window.location.assign(await buildAuthorizeUrl(current, pending));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doSignOut = async () => {
+    if (!auth) return;
+    const cleared = await signOut(auth);
+    await store.saveChatgptAuth(cleared);
+    setAuth(cleared);
+    onSignedOut();
+  };
+
+  const signedIn = isSignedIn(auth);
+  return (
+    <div className="space-y-2 rounded border border-neutral-200 p-2">
+      {signedIn ? (
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-emerald-700">
+            Signed in{auth?.email ? ` as ${auth.email}` : ""}. Icons use your
+            ChatGPT plan.
+          </span>
+          <IconButton
+            icon={LogOut}
+            label="Sign out of ChatGPT"
+            size="sm"
+            onClick={() => void doSignOut()}
+          />
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="flex-1">Not signed in.</span>
+          <IconButton
+            icon={LogIn}
+            label="Sign in with ChatGPT"
+            variant="primary"
+            disabled={busy}
+            onClick={() => void signIn()}
+          />
+        </div>
+      )}
+      {error && <p className="text-xs text-red-700">{error}</p>}
+      <p className="text-xs text-neutral-500">
+        Uses your Plus/Pro allowance (vector icons only; image models
+        aren&apos;t available this way). Set a per-app limit or disconnect in
+        ChatGPT → Settings → Security.
+      </p>
     </div>
   );
 }

@@ -1,8 +1,14 @@
 "use client";
 
-import { LoaderCircle, Settings, Sparkles } from "lucide-react";
+import { ChartColumn, LoaderCircle, Settings, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  ChatgptAuthError,
+  getAccessToken,
+  isSignedIn,
+} from "~/lib/ai/chatgpt-auth";
 import { PROVIDER_NAMES } from "~/lib/ai/models";
+import { type UsageEntry } from "~/lib/ai/pricing";
 import { customRect } from "~/lib/catalogue";
 import { type DesignElement, emptyDesign, newIcon, newId } from "~/lib/design";
 import { browserEnv } from "~/lib/render/browser-env";
@@ -102,10 +108,12 @@ export function AiIconDialog({
   onClose,
   onPick,
   onOpenSettings,
+  onOpenUsage,
 }: {
   onClose: () => void;
   onPick: (result: AiResult, name: string) => void;
   onOpenSettings: () => void;
+  onOpenUsage: () => void;
 }) {
   const { store } = useApp();
   const [ai, setAi] = useState<AiSettings>();
@@ -116,17 +124,27 @@ export function AiIconDialog({
   const [sizeMm, setSizeMm] = useState(15);
   const abort = useRef<AbortController | undefined>(undefined);
 
+  const [chatgptEmail, setChatgptEmail] = useState<string>();
+  const [chatgptReady, setChatgptReady] = useState(false);
+
   useEffect(() => {
     void store.getAiSettings().then(setAi);
+    void store.getChatgptAuth().then((a) => {
+      setChatgptReady(isSignedIn(a));
+      setChatgptEmail(a.email);
+    });
     return () => abort.current?.abort();
   }, [store]);
 
+  const usePlan = ai?.provider === "openai" && ai.openaiAuth === "chatgpt";
   const key = ai
     ? ai.provider === "anthropic"
       ? ai.anthropicKey
       : ai.openaiKey
     : "";
-  const imageMode = ai?.provider === "openai" && ai.iconStyle === "image";
+  const ready = usePlan ? chatgptReady : !!key;
+  const imageMode =
+    !usePlan && ai?.provider === "openai" && ai.iconStyle === "image";
   const model = ai
     ? ai.provider === "anthropic"
       ? ai.anthropicModel
@@ -134,6 +152,14 @@ export function AiIconDialog({
         ? ai.openaiImageModel
         : ai.openaiModel
     : "";
+
+  const logUsage = async (entry: UsageEntry) => {
+    try {
+      await store.logUsage(entry);
+    } catch (err) {
+      console.warn("Could not record AI usage", err);
+    }
+  };
 
   const generate = async () => {
     if (!ai) return;
@@ -146,18 +172,32 @@ export function AiIconDialog({
       // Loaded on demand: keeps both AI SDKs out of the main bundle.
       const { generateIcons, generateImageIcons } =
         await import("~/lib/ai/generate");
-      const cfg = { provider: ai.provider, apiKey: key, model };
-      const out: AiResult[] = imageMode
-        ? (await generateImageIcons(cfg, prompt, ctl.signal)).map((data) => ({
-            type: "png",
-            data,
-          }))
-        : (await generateIcons(cfg, prompt, ctl.signal)).map((data) => ({
-            type: "svg",
-            data,
-          }));
+      const apiKey = usePlan
+        ? await getAccessToken(await store.getChatgptAuth(), (a) =>
+            store.saveChatgptAuth(a),
+          )
+        : key;
+      const cfg = {
+        provider: ai.provider,
+        apiKey,
+        model,
+        chatgptPlan: usePlan,
+      };
+      const result = imageMode
+        ? await generateImageIcons(cfg, prompt, ctl.signal)
+        : await generateIcons(cfg, prompt, ctl.signal);
+      await logUsage(result.usage);
+      const out = result.items.map((data): AiResult =>
+        imageMode ? { type: "png", data } : { type: "svg", data },
+      );
       if (!ctl.signal.aborted) setResults(out);
     } catch (e) {
+      // A refused or unusable answer was still billed: record it.
+      if (e instanceof Error && "usage" in e && e.usage)
+        await logUsage(e.usage as UsageEntry);
+      if (e instanceof ChatgptAuthError && e.signedOut) {
+        setChatgptReady(false);
+      }
       if (!ctl.signal.aborted)
         setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -168,25 +208,41 @@ export function AiIconDialog({
   return (
     <Modal title="AI icon generator" onClose={onClose} wide>
       <div className="space-y-3 text-sm">
-        {ai && !key ? (
+        {ai && !ready ? (
           <div className="flex items-center gap-2 rounded border border-amber-300 bg-amber-50 p-2">
             <span className="flex-1">
-              Add your {PROVIDER_NAMES[ai.provider]} API key to generate icons.
+              {usePlan
+                ? "Sign in with ChatGPT to generate icons with your plan."
+                : `Add your ${PROVIDER_NAMES[ai.provider]} API key to generate icons.`}
             </span>
             <IconButton
               icon={Settings}
               label="Open AI settings"
               onClick={onOpenSettings}
             />
+            <IconButton
+              icon={ChartColumn}
+              label="AI usage and cost"
+              onClick={onOpenUsage}
+            />
           </div>
         ) : (
           <p className="flex items-center gap-2 text-xs text-neutral-600">
-            Using {ai ? `${PROVIDER_NAMES[ai.provider]} · ${model}` : "…"}
+            Using{" "}
+            {ai
+              ? `${PROVIDER_NAMES[ai.provider]} · ${model}${usePlan ? ` · ChatGPT plan${chatgptEmail ? ` (${chatgptEmail})` : ""}` : ""}`
+              : "…"}
             <IconButton
               icon={Settings}
               label="AI settings"
               size="sm"
               onClick={onOpenSettings}
+            />
+            <IconButton
+              icon={ChartColumn}
+              label="AI usage and cost"
+              size="sm"
+              onClick={onOpenUsage}
             />
           </p>
         )}
@@ -211,7 +267,7 @@ export function AiIconDialog({
             icon={busy ? LoaderCircle : Sparkles}
             label={busy ? "Generating…" : "Generate 4 icons"}
             variant="primary"
-            disabled={busy || !key || !prompt.trim()}
+            disabled={busy || !ready || !prompt.trim()}
             onClick={() => void generate()}
           />
         </form>

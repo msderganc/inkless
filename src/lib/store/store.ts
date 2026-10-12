@@ -1,6 +1,14 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import { z } from "zod";
+import {
+  type ChatgptAuth,
+  chatgptAuthSchema,
+  newChatgptAuth,
+  type PendingSignIn,
+  pendingSignInSchema,
+} from "../ai/chatgpt-auth";
 import { DEFAULT_MODELS, DEFAULT_OPENAI_IMAGE_MODEL } from "../ai/models";
+import { type UsageEntry } from "../ai/pricing";
 import { batchSpecSchema, type BatchSpec } from "../batch";
 import { designSchema, type Design } from "../design";
 
@@ -72,7 +80,10 @@ interface LabelDb extends DBSchema {
   /** The editor's unsaved working state, restored on refresh (added in DB version 2). */
   drafts: { key: string; value: { key: string; value: Draft } };
   /** AI provider keys and models (DB version 3). Never included in backups. */
-  secrets: { key: string; value: { key: string; value: AiSettings } };
+  /** Validated per key on read: "ai" (AiSettings), "chatgpt" (auth), "chatgpt-pending". */
+  secrets: { key: string; value: { key: string; value: unknown } };
+  /** AI usage log (DB version 4). Local only; never exported. */
+  usage: { key: number; value: UsageEntry; indexes: { at: number } };
 }
 
 export const aiSettingsSchema = z.object({
@@ -89,6 +100,8 @@ export const aiSettingsSchema = z.object({
     .default(DEFAULT_OPENAI_IMAGE_MODEL),
   /** OpenAI only: "vector" (SVG from a text model) or "image" (image model, converted to 1-bit). */
   iconStyle: z.enum(["vector", "image"]).default("vector"),
+  /** OpenAI: pay with an API key, or with the ChatGPT plan via "Sign in with ChatGPT". */
+  openaiAuth: z.enum(["key", "chatgpt"]).default("key"),
 });
 export type AiSettings = z.infer<typeof aiSettingsSchema>;
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -99,6 +112,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   openaiModel: DEFAULT_MODELS.openai,
   openaiImageModel: DEFAULT_OPENAI_IMAGE_MODEL,
   iconStyle: "vector",
+  openaiAuth: "key",
 };
 
 /** Editor working state that survives a page refresh. */
@@ -116,7 +130,9 @@ export const draftSchema = z.object({
 export type Draft = z.infer<typeof draftSchema>;
 
 export const DB_NAME = "label-printer";
-const DB_VERSION = 3;
+export const DB_VERSION = 4;
+/** Usage log entries kept (oldest are pruned). */
+export const USAGE_LIMIT = 2000;
 
 export class Store {
   private constructor(private readonly db: IDBPDatabase<LabelDb>) {}
@@ -143,6 +159,10 @@ export class Store {
         }
         if (oldVersion < 2) db.createObjectStore("drafts", { keyPath: "key" });
         if (oldVersion < 3) db.createObjectStore("secrets", { keyPath: "key" });
+        if (oldVersion < 4) {
+          const u = db.createObjectStore("usage", { autoIncrement: true });
+          u.createIndex("at", "at");
+        }
       },
     });
     opened.db = db;
@@ -168,6 +188,59 @@ export class Store {
   }
 
   /** AI settings, including API keys. Stored only in this browser; not exported. */
+  /** "Sign in with ChatGPT" tokens (created with a fresh host id if none yet). */
+  async getChatgptAuth(): Promise<ChatgptAuth> {
+    const row = await this.db.get("secrets", "chatgpt");
+    const parsed = chatgptAuthSchema.safeParse(row?.value);
+    if (parsed.success) return parsed.data;
+    const fresh = newChatgptAuth();
+    await this.saveChatgptAuth(fresh);
+    return fresh;
+  }
+
+  async saveChatgptAuth(value: ChatgptAuth): Promise<void> {
+    await this.db.put("secrets", {
+      key: "chatgpt",
+      value: chatgptAuthSchema.parse(value),
+    });
+  }
+
+  async getPendingSignIn(): Promise<PendingSignIn | undefined> {
+    const parsed = pendingSignInSchema.safeParse(
+      (await this.db.get("secrets", "chatgpt-pending"))?.value,
+    );
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  async savePendingSignIn(value: PendingSignIn | undefined): Promise<void> {
+    if (value) await this.db.put("secrets", { key: "chatgpt-pending", value });
+    else await this.db.delete("secrets", "chatgpt-pending");
+  }
+
+  /** Record one AI request (bounded: keeps the newest USAGE_LIMIT entries). */
+  async logUsage(entry: UsageEntry): Promise<void> {
+    const tx = this.db.transaction("usage", "readwrite");
+    await tx.store.add(entry);
+    const count = await tx.store.count();
+    if (count > USAGE_LIMIT) {
+      let cursor = await tx.store.index("at").openCursor();
+      for (let extra = count - USAGE_LIMIT; extra > 0 && cursor; extra--) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+      }
+    }
+    await tx.done;
+  }
+
+  /** Usage entries, newest first. */
+  async listUsage(): Promise<UsageEntry[]> {
+    return (await this.db.getAllFromIndex("usage", "at")).reverse();
+  }
+
+  async clearUsage(): Promise<void> {
+    await this.db.clear("usage");
+  }
+
   async getAiSettings(): Promise<AiSettings> {
     const row = await this.db.get("secrets", "ai");
     const parsed = aiSettingsSchema.safeParse(row?.value);

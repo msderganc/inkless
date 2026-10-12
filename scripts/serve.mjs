@@ -52,3 +52,41 @@ for (const host of HOSTS) {
       console.log(`B21S Labels: http://localhost:${PORT}/`);
   });
 }
+
+// "Sign in with ChatGPT" requires a loopback redirect on 127.0.0.1 (never "localhost").
+// This listener only forwards OpenAI's redirect (code + state) to the app, which does the
+// PKCE token exchange itself. It sees the one-time authorization code, nothing else.
+const OAUTH_PORT = 1455;
+const APP_ORIGIN = `http://localhost:${PORT}`;
+const oauth = createServer((req, res) => {
+  const url = new URL(req.url ?? "/", `http://127.0.0.1:${OAUTH_PORT}`);
+  if (url.pathname === "/health") {
+    res.writeHead(200, {
+      "Access-Control-Allow-Origin": APP_ORIGIN,
+      "Cache-Control": "no-store",
+      "Content-Type": "text/plain",
+    });
+    res.end("ok");
+    return;
+  }
+  if (url.pathname === "/auth/callback") {
+    const forward = new URLSearchParams();
+    for (const k of ["code", "state", "error", "error_description"]) {
+      const v = url.searchParams.get(k);
+      if (v) forward.set(k, v);
+    }
+    res.writeHead(302, {
+      Location: `${APP_ORIGIN}/oauth-callback/?${forward.toString()}`,
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+    });
+    res.end();
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+oauth.on("error", (e) =>
+  console.warn(`ChatGPT sign-in listener unavailable on 127.0.0.1:${OAUTH_PORT} (${e.code}).`),
+);
+oauth.listen(OAUTH_PORT, "127.0.0.1");

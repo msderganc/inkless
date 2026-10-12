@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emptyDesign, newText } from "../design";
 import { openDB } from "idb";
-import { DEFAULT_SETTINGS, type Draft, newTemplate, Store } from "./store";
+import {
+  DB_VERSION,
+  DEFAULT_SETTINGS,
+  type Draft,
+  newTemplate,
+  Store,
+  USAGE_LIMIT,
+} from "./store";
 
 let store: Store;
 let dbName: string;
@@ -52,7 +59,9 @@ describe("upgrades across tabs", () => {
     const name = `future-${crypto.randomUUID()}`;
     const current = await Store.open(name);
     let blocked = false;
-    const next = await openDB(name, 3, { blocked: () => (blocked = true) });
+    const next = await openDB(name, DB_VERSION + 1, {
+      blocked: () => (blocked = true),
+    });
     expect(blocked).toBe(false);
     next.close();
     current.close();
@@ -74,6 +83,58 @@ describe("AI settings", () => {
     expect(backup).not.toContain("sk-ant-secret");
     expect(backup).not.toContain("sk-openai-secret");
   });
+
+  it("keeps the ChatGPT sign-in local and out of backups", async () => {
+    const fresh = await store.getChatgptAuth();
+    expect(fresh.hostId.length).toBeGreaterThanOrEqual(8);
+    expect((await store.getChatgptAuth()).hostId).toBe(fresh.hostId);
+    await store.saveChatgptAuth({
+      ...fresh,
+      refreshToken: "rt-secret",
+      scopes: ["x"],
+    });
+    expect((await store.getChatgptAuth()).refreshToken).toBe("rt-secret");
+    expect(JSON.stringify(await store.exportBackup())).not.toContain(
+      "rt-secret",
+    );
+
+    const pending = { state: "s", nonce: "n", verifier: "v", createdAt: 1 };
+    await store.savePendingSignIn(pending);
+    expect(await store.getPendingSignIn()).toEqual(pending);
+    await store.savePendingSignIn(undefined);
+    expect(await store.getPendingSignIn()).toBeUndefined();
+  });
+});
+
+describe("AI usage log", () => {
+  const use = (at: number) => ({
+    at,
+    provider: "anthropic" as const,
+    billing: "api-key" as const,
+    model: "claude-opus-5-5",
+    inputTokens: 1,
+    outputTokens: 2,
+    costUsd: 0.001,
+    prompt: `p${at}`,
+    kind: "vector" as const,
+  });
+
+  it("lists newest first, prunes the oldest beyond the limit, clears, and isn't backed up", async () => {
+    await store.logUsage(use(2));
+    await store.logUsage(use(1));
+    await store.logUsage(use(3));
+    expect((await store.listUsage()).map((e) => e.at)).toEqual([3, 2, 1]);
+    expect(JSON.stringify(await store.exportBackup())).not.toContain("p2");
+    await store.clearUsage();
+    expect(await store.listUsage()).toEqual([]);
+  });
+
+  it("keeps at most USAGE_LIMIT entries", async () => {
+    for (let i = 0; i < USAGE_LIMIT + 3; i++) await store.logUsage(use(i));
+    const all = await store.listUsage();
+    expect(all).toHaveLength(USAGE_LIMIT);
+    expect(all.at(-1)!.at).toBe(3);
+  }, 30_000);
 });
 
 describe("settings migration", () => {
@@ -145,6 +206,17 @@ describe("editor draft", () => {
       ]);
       await upgraded.saveDraft(draft());
       expect((await upgraded.getDraft())?.copies).toBe(2);
+      await upgraded.logUsage({
+        at: 1,
+        provider: "openai",
+        billing: "chatgpt-plan",
+        model: "m",
+        inputTokens: 0,
+        outputTokens: 0,
+        prompt: "x",
+        kind: "vector",
+      });
+      expect(await upgraded.listUsage()).toHaveLength(1);
     } finally {
       upgraded.close();
     }

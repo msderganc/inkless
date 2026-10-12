@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Circle,
   Copy,
+  FilePlus,
   Frame,
   ImagePlus,
   Minus,
@@ -46,6 +47,7 @@ import {
 import { type Draft, newTemplate, type Template } from "~/lib/store/store";
 import { AiIconDialog } from "./AiIconDialog";
 import { AiSettingsDialog } from "./AiSettingsDialog";
+import { UsageDialog } from "./UsageDialog";
 import { useApp, useSessionStatus } from "./app-context";
 import { BOX_ALIGN, ElementPanel } from "./ElementPanel";
 import { IconButton } from "./IconButton";
@@ -60,7 +62,7 @@ import { DEFAULT_ZOOM, Workspace, WorkspaceLegend } from "./Workspace";
 const DEFAULT_LABEL = "rect-50x30";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
-type Dialog = "library" | "ai" | "ai-settings" | undefined;
+type Dialog = "library" | "ai" | "ai-settings" | "usage" | undefined;
 
 export default function Editor() {
   const { store, session, settings, updateSettings, overrides, initialDraft } =
@@ -515,6 +517,25 @@ export default function Editor() {
     changeLabel(t.design.labelId);
   };
 
+  /** Start over on a blank label of the same size (undo brings the old design back). */
+  const newLabel = () => {
+    if (
+      design.elements.length > 0 &&
+      !window.confirm(
+        "Start a new blank label? The current design will be cleared (Undo brings it back).",
+      )
+    )
+      return;
+    setDesign({
+      ...emptyDesign(design.labelId),
+      repeatInWrap: design.repeatInWrap,
+    });
+    setBatch({ kind: "none" });
+    setCurrent(undefined);
+    setSelectedIds([]);
+    setLastResult(undefined);
+  };
+
   const shownLabel = recordLabel(batch, previewRecord);
 
   return (
@@ -522,6 +543,16 @@ export default function Editor() {
       <StatusBar page="editor" />
       <div className="flex flex-1 flex-col lg:flex-row">
         <aside className="space-y-6 border-neutral-200 bg-white p-4 lg:w-72 lg:border-r">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-neutral-600">
+              {current ? current.name : "Untitled label"}
+            </span>
+            <IconButton
+              icon={FilePlus}
+              label="New blank label"
+              onClick={newLabel}
+            />
+          </div>
           <LabelPicker labelId={design.labelId} onChange={changeLabel} />
           <section className="space-y-2">
             <h2 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
@@ -829,11 +860,13 @@ export default function Editor() {
             setDialog(undefined);
           }}
           onOpenSettings={() => setDialog("ai-settings")}
+          onOpenUsage={() => setDialog("usage")}
         />
       )}
       {dialog === "ai-settings" && (
         <AiSettingsDialog onClose={() => setDialog("ai")} />
       )}
+      {dialog === "usage" && <UsageDialog onClose={() => setDialog("ai")} />}
     </div>
   );
 }
