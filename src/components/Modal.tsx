@@ -18,7 +18,8 @@ export function Modal({
   title: string;
   onClose: () => void;
   children: React.ReactNode;
-  wide?: boolean;
+  /** true = 3xl; "xl" = extra wide (e.g. the icon library). */
+  wide?: boolean | "xl";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   // Keep the latest onClose without re-running the open/close effect.
@@ -51,7 +52,7 @@ export function Modal({
     <dialog
       ref={ref}
       aria-label={title}
-      className={`m-auto max-h-[90vh] w-[calc(100vw-2rem)] ${wide ? "max-w-3xl" : "max-w-lg"} rounded-lg border border-neutral-300 bg-white p-0 text-neutral-900 shadow-xl backdrop:bg-black/50`}
+      className={`m-auto max-h-[90vh] w-[calc(100vw-2rem)] ${wide === "xl" ? "max-w-6xl" : wide ? "max-w-3xl" : "max-w-lg"} rounded-lg border border-neutral-300 bg-white p-0 text-neutral-900 shadow-xl backdrop:bg-black/50`}
       onClick={(e) => {
         if (e.target === ref.current) onClose(); // click on the backdrop
       }}

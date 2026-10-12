@@ -101,7 +101,7 @@ export function IconLibraryDialog({
   };
 
   return (
-    <Modal title="Icon library" onClose={onClose} wide>
+    <Modal title="Icon library" onClose={onClose} wide="xl">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <input
@@ -131,7 +131,7 @@ export function IconLibraryDialog({
         <div
           role="group"
           aria-label="Category"
-          className="flex max-h-24 flex-wrap gap-1 overflow-y-auto"
+          className="flex flex-wrap gap-1"
         >
           <button
             type="button"
