@@ -1,6 +1,7 @@
 "use client";
 
 import { BookmarkCheck, BookmarkPlus, Check } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   CATALOGUE,
@@ -130,8 +131,12 @@ export function LabelPicker({
 
       {spec && !spec.verified && (
         <p className="text-xs text-amber-700">
-          Shape not yet measured on a real roll. Check the first print; adjust
-          it under Diagnostics if needed.
+          This size comes from NIIMBOT&apos;s listing and hasn&apos;t been
+          checked on your printer yet. Print the outline test on the{" "}
+          <Link href="/diagnostics/" className="underline">
+            Diagnostics
+          </Link>{" "}
+          page once to confirm it lines up.
         </p>
       )}
 

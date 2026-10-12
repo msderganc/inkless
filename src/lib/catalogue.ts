@@ -63,7 +63,9 @@ const round = (d: number, perRoll: number, stock: StockColour): LabelSpec => ({
   heightMm: d,
   stock,
   perRoll,
-  verified: false,
+  // 31 mm round verified on Matthew's B21S (outline test centred, spec V12). Clear stock
+  // is the same die-cut, so it is treated as verified too.
+  verified: d === 31,
 });
 
 export const CATALOGUE: readonly LabelSpec[] = [

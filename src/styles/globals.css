@@ -11,6 +11,21 @@
 }
 
 /*
+ * Form controls use the theme's surface and text colours explicitly. Without this, Edge draws the
+ * native <select> list with a white background but inherits light text in dark mode.
+ */
+@layer base {
+  select,
+  option,
+  optgroup,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea {
+    background-color: var(--color-white);
+    color: var(--color-neutral-900);
+  }
+}
+
+/*
  * Dark theme: remap the neutral scale (and the few light accent tints) so every surface, border and
  * text colour flips without per-element dark: classes. Surfaces: page < panel; text gets lighter
  * as the original got darker.

@@ -57,8 +57,11 @@ describe("catalogue", () => {
     }
   });
 
-  it("all entries are unverified until measured on real rolls", () => {
-    expect(CATALOGUE.every((l) => !l.verified)).toBe(true);
+  it("only the hardware-checked 31 mm round labels are marked verified", () => {
+    expect(CATALOGUE.filter((l) => l.verified).map((l) => l.id)).toEqual([
+      "round-31",
+      "round-31-clear",
+    ]);
   });
 
   it("round safe area is a circle (corners excluded)", () => {
