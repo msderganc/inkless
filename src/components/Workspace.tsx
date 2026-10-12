@@ -165,7 +165,7 @@ export function Workspace({
 
   return (
     <div
-      className="relative bg-white shadow-sm ring-1 ring-neutral-300"
+      className="bg-paper relative shadow-sm ring-1 ring-neutral-300"
       style={{
         width: w,
         height: h,

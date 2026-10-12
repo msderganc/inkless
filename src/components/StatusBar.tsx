@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type SessionState } from "~/lib/printer/session";
 import { useApp, useSessionStatus } from "./app-context";
+import { ThemeToggle } from "./ThemeToggle";
 
 const STATE_TEXT: Record<SessionState, string> = {
   disconnected: "Not connected",
@@ -62,6 +63,7 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
       )}
       {error && <span className="text-red-700">{error}</span>}
       <span className="ml-auto flex items-center gap-3">
+        <ThemeToggle />
         <Link
           className="text-sky-700 underline-offset-2 hover:underline"
           href={page === "editor" ? "/diagnostics/" : "/"}
@@ -80,7 +82,7 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
         ) : (
           <button
             type="button"
-            className="rounded bg-sky-600 px-3 py-1 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+            className="text-on-accent rounded bg-sky-600 px-3 py-1 font-medium hover:bg-sky-700 disabled:opacity-50"
             onClick={() => void connectPrinter()}
             disabled={state === "connecting"}
           >

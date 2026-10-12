@@ -1,5 +1,43 @@
 @import "tailwindcss";
 
+/* Dark mode follows the .dark class on <html> (set before paint by the theme script in layout). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  /* Label paper stays white in both themes. */
+  --color-paper: #ffffff;
+  --color-on-accent: #ffffff;
+}
+
+/*
+ * Dark theme: remap the neutral scale (and the few light accent tints) so every surface, border and
+ * text colour flips without per-element dark: classes. Surfaces: page < panel; text gets lighter
+ * as the original got darker.
+ */
+.dark {
+  color-scheme: dark;
+  --color-white: oklch(0.235 0.004 260);
+  --color-neutral-50: oklch(0.21 0.004 260);
+  --color-neutral-100: oklch(0.175 0.004 260);
+  --color-neutral-200: oklch(0.31 0.005 260);
+  --color-neutral-300: oklch(0.38 0.005 260);
+  --color-neutral-400: oklch(0.5 0.005 260);
+  --color-neutral-500: oklch(0.64 0.005 260);
+  --color-neutral-600: oklch(0.72 0.005 260);
+  --color-neutral-700: oklch(0.8 0.004 260);
+  --color-neutral-800: oklch(0.86 0.003 260);
+  --color-neutral-900: oklch(0.93 0.002 260);
+  --color-neutral-950: oklch(0.97 0.001 260);
+
+  --color-sky-50: oklch(0.3 0.05 240);
+  --color-sky-300: oklch(0.52 0.1 240);
+  --color-sky-700: oklch(0.78 0.11 237);
+  --color-sky-800: oklch(0.84 0.09 237);
+  --color-amber-50: oklch(0.31 0.06 75);
+  --color-amber-300: oklch(0.55 0.11 75);
+  --color-amber-700: oklch(0.84 0.13 80);
+  --color-red-50: oklch(0.3 0.07 25);
+  --color-red-300: oklch(0.55 0.13 25);
+  --color-red-700: oklch(0.76 0.15 25);
 }

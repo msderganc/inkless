@@ -7,9 +7,10 @@ type Variant = "default" | "primary" | "danger" | "warning";
 const VARIANTS: Record<Variant, string> = {
   default:
     "border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100",
-  primary: "border border-sky-600 bg-sky-600 text-white hover:bg-sky-700",
+  primary: "border border-sky-600 bg-sky-600 text-on-accent hover:bg-sky-700",
   danger: "border border-red-300 bg-white text-red-700 hover:bg-red-50",
-  warning: "border border-amber-500 bg-amber-500 text-white hover:bg-amber-600",
+  warning:
+    "border border-amber-500 bg-amber-500 text-on-accent hover:bg-amber-600",
 };
 
 interface Props {
