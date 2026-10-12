@@ -92,8 +92,17 @@ const DB_VERSION = 2;
 export class Store {
   private constructor(private readonly db: IDBPDatabase<LabelDb>) {}
 
-  static async open(name = DB_NAME): Promise<Store> {
+  /**
+   * Open the database. An upgrade waits until every other connection (another tab or window still
+   * running an older version) has closed; `onBlocked` is called while that is happening so the UI
+   * can say so. This connection closes itself whenever a newer version needs to upgrade, so this
+   * version never blocks a future one.
+   */
+  static async open(name = DB_NAME, onBlocked?: () => void): Promise<Store> {
+    const opened: { db?: IDBPDatabase<LabelDb> } = {};
     const db = await openDB<LabelDb>(name, DB_VERSION, {
+      blocked: () => onBlocked?.(),
+      blocking: () => opened.db?.close(),
       upgrade(db, oldVersion) {
         // Additive migrations only, so existing templates and settings are kept.
         if (oldVersion < 1) {
@@ -106,6 +115,7 @@ export class Store {
         if (oldVersion < 2) db.createObjectStore("drafts", { keyPath: "key" });
       },
     });
+    opened.db = db;
     return new Store(db);
   }
 

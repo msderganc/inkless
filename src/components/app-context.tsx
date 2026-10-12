@@ -27,6 +27,7 @@ import {
   type Settings,
   Store,
 } from "~/lib/store/store";
+import { LoadingStep } from "./LoadingStep";
 
 interface AppContextValue {
   store: Store;
@@ -60,6 +61,7 @@ function getSession(): PrinterSession {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [store, setStore] = useState<Store>();
   const [error, setError] = useState<string>();
+  const [blocked, setBlocked] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const [overrides, setOverrides] = useState<Record<string, LabelOverride>>({});
@@ -69,7 +71,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let opened: Store | undefined;
     let cancelled = false;
-    Store.open()
+    Store.open(undefined, () => setBlocked(true))
       .then(async (s) => {
         if (cancelled) return s.close();
         opened = s;
@@ -164,7 +166,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!store) return <div className="p-6 text-neutral-500">Loading…</div>;
+  if (!store) {
+    return blocked ? (
+      <LoadingStep
+        step="Waiting for another copy of B21S Labels to close"
+        hint="An older version is still open in another tab, window or the installed app. Close it, and this page continues by itself."
+      />
+    ) : (
+      <LoadingStep
+        step="Opening local storage"
+        hint="The browser has not opened the app database. Close other copies of the app, then reload."
+      />
+    );
+  }
 
   return (
     <AppContext.Provider

@@ -22,6 +22,43 @@ const sample = (name = "Bins") =>
     1,
   );
 
+describe("upgrades across tabs", () => {
+  it("reports when an older tab blocks the upgrade, then opens once it closes", async () => {
+    const name = `blocked-${crypto.randomUUID()}`;
+    // An old tab: version 1, with no handler to step aside.
+    const old = await openDB(name, 1, {
+      upgrade(db) {
+        db.createObjectStore("templates", { keyPath: "id" }).createIndex(
+          "updatedAt",
+          "updatedAt",
+        );
+        db.createObjectStore("labelMap", { keyPath: "barcode" });
+        db.createObjectStore("overrides", { keyPath: "labelId" });
+        db.createObjectStore("settings", { keyPath: "key" });
+      },
+    });
+    let blocked = 0;
+    const opening = Store.open(name, () => {
+      blocked++;
+      old.close(); // the user closes the old tab
+    });
+    const s = await opening;
+    expect(blocked).toBe(1);
+    expect(await s.getDraft()).toBeUndefined();
+    s.close();
+  });
+
+  it("closes itself so a future version's upgrade is not blocked", async () => {
+    const name = `future-${crypto.randomUUID()}`;
+    const current = await Store.open(name);
+    let blocked = false;
+    const next = await openDB(name, 3, { blocked: () => (blocked = true) });
+    expect(blocked).toBe(false);
+    next.close();
+    current.close();
+  });
+});
+
 describe("settings migration", () => {
   it("keeps older saved settings and defaults autoConnect to off", async () => {
     const raw = await openDB(dbName);
