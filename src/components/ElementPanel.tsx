@@ -308,7 +308,7 @@ function TextFields({
       <details className="group text-xs">
         <summary className="flex cursor-pointer items-center gap-1 text-neutral-600">
           <Sparkles size={13} aria-hidden />
-          Describe it (AI writes the ranges and dates)
+          Describe it (writes the ranges and dates for you)
         </summary>
         <div className="mt-1.5">
           <DescribeText

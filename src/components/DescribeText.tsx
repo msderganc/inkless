@@ -1,11 +1,12 @@
 "use client";
 
-import { LoaderCircle, Settings, Sparkles } from "lucide-react";
+import { Bot, LoaderCircle, Settings, Sparkles, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAccessToken, isSignedIn } from "~/lib/ai/chatgpt-auth";
-import { PROVIDER_NAMES } from "~/lib/ai/models";
+import { DEFAULT_MODELS, PROVIDER_NAMES } from "~/lib/ai/models";
 import { type UsageEntry } from "~/lib/ai/pricing";
 import { BatchError, jobRecords, substitute } from "~/lib/batch";
+import { describeLocally } from "~/lib/describe";
 import { type AiSettings } from "~/lib/store/store";
 import { AiSettingsDialog } from "./AiSettingsDialog";
 import { useApp } from "./app-context";
@@ -33,12 +34,43 @@ function preview(text: string) {
 const EXAMPLES = [
   "every quarter inch from 1/4 to 2 inches",
   "bins A1 to D5",
-  "best by 6 months from today, like Mar 2027",
-  "box 1 of 12 through 12 of 12",
+  "best by 6 months from today",
+  "box 1 of 12 to 12 of 12",
   "metric bolts M3 to M10 in 10, 20 and 30 mm lengths",
 ];
 
-/** "Describe it": the AI writes label text (ranges, lists, dates) from plain words. */
+/** Which AI to use: the ChatGPT plan when signed in (no API cost), else the configured key. */
+function chooseAi(ai: AiSettings | undefined, planSignedIn: boolean) {
+  if (!ai) return undefined;
+  if (planSignedIn) {
+    const model = ai.openaiModel || DEFAULT_MODELS.openai;
+    return {
+      provider: "openai" as const,
+      plan: true,
+      model,
+      key: "",
+      label: `ChatGPT plan · ${model}`,
+    };
+  }
+  const key = ai.provider === "anthropic" ? ai.anthropicKey : ai.openaiKey;
+  if (!key) return undefined;
+  const model =
+    ai.provider === "anthropic" ? ai.anthropicModel : ai.openaiModel;
+  return {
+    provider: ai.provider,
+    plan: false,
+    model,
+    key,
+    label: `${PROVIDER_NAMES[ai.provider]} · ${model}`,
+  };
+}
+
+type Result = { text: string; note: string; by: "local" | "ai" };
+
+/**
+ * "Describe it": common requests are worked out instantly on this computer; anything else goes
+ * to the AI (your ChatGPT plan if you're signed in).
+ */
 export function DescribeText({
   onUse,
 }: {
@@ -50,9 +82,9 @@ export function DescribeText({
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [result, setResult] = useState<{ text: string; note: string }>();
-  const abort = useRef<AbortController | undefined>(undefined);
+  const [result, setResult] = useState<Result>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const abort = useRef<AbortController | undefined>(undefined);
 
   const loadAi = useCallback(() => {
     void store.getAiSettings().then(setAi);
@@ -62,53 +94,43 @@ export function DescribeText({
     loadAi();
     return () => abort.current?.abort();
   }, [loadAi]);
-  const settingsDialog = settingsOpen && (
-    <AiSettingsDialog
-      onClose={() => {
-        setSettingsOpen(false);
-        loadAi();
-      }}
-    />
-  );
 
-  const usePlan = ai?.provider === "openai" && ai.openaiAuth === "chatgpt";
-  const key = ai
-    ? ai.provider === "anthropic"
-      ? ai.anthropicKey
-      : ai.openaiKey
-    : "";
-  const ready = usePlan ? planReady : !!key;
-  const model = ai
-    ? ai.provider === "anthropic"
-      ? ai.anthropicModel
-      : ai.openaiModel
-    : "";
+  const engine = chooseAi(ai, planReady);
 
-  const log = (u: UsageEntry) => store.logUsage(u).catch(() => undefined);
-
-  const run = async () => {
-    if (!ai || !description.trim()) return;
+  const askAi = async () => {
+    if (!engine) {
+      setError(
+        "That needs the AI, which isn't set up. Sign in with ChatGPT or add a key in AI settings.",
+      );
+      return;
+    }
     setBusy(true);
     setError(undefined);
     setResult(undefined);
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
+    const log = (u: UsageEntry) => store.logUsage(u).catch(() => undefined);
     try {
       const { generatePattern } = await import("~/lib/ai/generate");
-      const apiKey = usePlan
+      const apiKey = engine.plan
         ? await getAccessToken(await store.getChatgptAuth(), (a) =>
             store.saveChatgptAuth(a),
           )
-        : key;
+        : engine.key;
       const out = await generatePattern(
-        { provider: ai.provider, apiKey, model, chatgptPlan: usePlan },
+        {
+          provider: engine.provider,
+          apiKey,
+          model: engine.model,
+          chatgptPlan: engine.plan,
+        },
         description,
         checkLabelText,
         ctl.signal,
       );
       await log(out.usage);
-      if (!ctl.signal.aborted) setResult(out);
+      if (!ctl.signal.aborted) setResult({ ...out, by: "ai" });
     } catch (e) {
       if (e instanceof Error && "usage" in e && e.usage)
         await log(e.usage as UsageEntry);
@@ -119,28 +141,17 @@ export function DescribeText({
     }
   };
 
-  if (ai && !ready)
-    return (
-      <div className="flex items-center gap-2 text-xs text-neutral-600">
-        <Sparkles size={14} aria-hidden />
-        <span className="flex-1">
-          Describe it with AI: set up{" "}
-          {usePlan
-            ? "Sign in with ChatGPT"
-            : `your ${PROVIDER_NAMES[ai.provider]} key`}{" "}
-          first.
-        </span>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded border border-neutral-300 px-2 py-0.5 hover:bg-neutral-100"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Settings size={12} aria-hidden />
-          AI settings
-        </button>
-        {settingsDialog}
-      </div>
-    );
+  const run = () => {
+    if (!description.trim()) return;
+    setError(undefined);
+    setResult(undefined); // never leave an older answer under a new request
+    const local = describeLocally(description, checkLabelText);
+    if (local) {
+      setResult({ ...local, by: "local" });
+      return;
+    }
+    void askAi();
+  };
 
   const shown = result ? preview(result.text) : undefined;
   return (
@@ -149,7 +160,7 @@ export function DescribeText({
         className="flex gap-1.5"
         onSubmit={(e) => {
           e.preventDefault();
-          void run();
+          run();
         }}
       >
         <input
@@ -162,8 +173,8 @@ export function DescribeText({
         />
         <button
           type="submit"
-          title="Write the label text with AI"
-          aria-label="Write the label text with AI"
+          title="Write the label text"
+          aria-label="Write the label text"
           disabled={busy || !description.trim()}
           className="text-on-accent inline-flex size-8 items-center justify-center rounded border border-sky-600 bg-sky-600 hover:bg-sky-700 disabled:opacity-40"
         >
@@ -188,13 +199,48 @@ export function DescribeText({
           ))}
         </div>
       )}
-      {error && (
-        <p className="text-xs text-red-700" role="alert">
-          {error}
+      {busy && (
+        <p className="text-xs text-neutral-600" role="status">
+          Asking {engine?.label ?? "the AI"}…
         </p>
+      )}
+      {error && (
+        <div
+          className="flex items-center gap-2 text-xs text-red-700"
+          role="alert"
+        >
+          <span className="flex-1">{error}</span>
+          {!engine && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-neutral-300 px-2 py-0.5 text-neutral-700 hover:bg-neutral-100"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings size={12} aria-hidden />
+              AI settings
+            </button>
+          )}
+        </div>
       )}
       {result && shown && (
         <div className="space-y-1.5 text-xs">
+          <p
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+              result.by === "local"
+                ? "bg-emerald-600/10 text-emerald-700"
+                : "bg-sky-600/10 text-sky-700"
+            }`}
+          >
+            {result.by === "local" ? (
+              <>
+                <Zap size={12} aria-hidden /> Worked out instantly, no AI
+              </>
+            ) : (
+              <>
+                <Bot size={12} aria-hidden /> Written by {engine?.label ?? "AI"}
+              </>
+            )}
+          </p>
           <code className="block rounded bg-neutral-100 px-2 py-1 font-mono text-sm break-all whitespace-pre-wrap text-neutral-900">
             {result.text}
           </code>
@@ -204,7 +250,7 @@ export function DescribeText({
               ? `One label: “${shown.first}”`
               : `${shown.count} labels: “${shown.first}” … “${shown.last}”`}
           </p>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
               className="text-on-accent rounded border border-sky-600 bg-sky-600 px-2 py-1 font-medium hover:bg-sky-700"
@@ -225,14 +271,33 @@ export function DescribeText({
             >
               Insert at cursor
             </button>
+            {result.by === "local" && engine && (
+              <button
+                type="button"
+                className="rounded border border-neutral-300 px-2 py-1 hover:bg-neutral-100"
+                title="Not quite right? Ask the AI instead"
+                onClick={() => void askAi()}
+              >
+                Ask AI instead
+              </button>
+            )}
           </div>
         </div>
       )}
-      {settingsDialog}
       <p className="text-[11px] text-neutral-500">
-        Uses {ai ? `${PROVIDER_NAMES[ai.provider]} · ${model}` : "your AI"}
-        {usePlan ? " (ChatGPT plan)" : ""}; logged in AI usage.
+        Common requests are worked out on this computer.{" "}
+        {engine
+          ? `Others go to ${engine.label}${engine.plan ? " (no API cost)" : ""}; logged in AI usage.`
+          : "Others need the AI (not set up)."}
       </p>
+      {settingsOpen && (
+        <AiSettingsDialog
+          onClose={() => {
+            setSettingsOpen(false);
+            loadAi();
+          }}
+        />
+      )}
     </div>
   );
 }
