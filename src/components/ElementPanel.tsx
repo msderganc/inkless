@@ -36,6 +36,7 @@ import { guessIconCategories, loadIconLibrary, lucideToSvg } from "~/lib/icons";
 import { useRef, useState } from "react";
 import { substitute } from "~/lib/batch";
 import { VARIABLE_PRESETS } from "~/lib/datevars";
+import { RANGE_EXAMPLES } from "~/lib/pattern";
 import {
   canListInstalledFonts,
   listInstalledFonts,
@@ -601,6 +602,13 @@ function VariableMenu({ onInsert }: { onInsert: (v: string) => void }) {
           <option value="{i}">Label number in the batch {"{i}"}</option>
           <option value="{total}">Labels in the batch {"{total}"}</option>
           <option value="{i} of {total}">“3 of 10”</option>
+        </optgroup>
+        <optgroup label="Counters and ranges (one label per value)">
+          {RANGE_EXAMPLES.map((x) => (
+            <option key={x.pattern} value={x.pattern}>
+              {x.pattern} · {x.note}
+            </option>
+          ))}
         </optgroup>
         {VARIABLE_PRESETS.map((g) => (
           <optgroup key={g.group} label={g.group}>

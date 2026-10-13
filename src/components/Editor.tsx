@@ -16,9 +16,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { alignGroup, alignmentArea } from "~/lib/align";
-import { batchRecords, type BatchSpec, recordLabel } from "~/lib/batch";
+import { type BatchSpec, jobRecords, recordLabel } from "~/lib/batch";
 import {
   type DesignElement,
+  designTexts,
   designUsesBatch,
   emptyDesign,
   type ImageElement,
@@ -182,11 +183,11 @@ export default function Editor() {
   // Batch records for stepping through the preview ([null] when not a batch or invalid).
   const records = useMemo(() => {
     try {
-      return batchRecords(batch);
+      return jobRecords(batch, designTexts(design));
     } catch {
       return [null];
     }
-  }, [batch]);
+  }, [batch, design]);
   const isBatch = records.length > 1 || records[0] !== null;
   const [previewIndex, setPreviewIndex] = useState(0);
   const shownIndex = Math.min(previewIndex, records.length - 1);
@@ -601,9 +602,9 @@ export default function Editor() {
 
   const print = async () => {
     setLastResult(undefined);
-    let recs: ReturnType<typeof batchRecords>;
+    let recs: ReturnType<typeof jobRecords>;
     try {
-      recs = batchRecords(batch);
+      recs = jobRecords(batch, designTexts(design));
     } catch (e) {
       setLastResult(e instanceof Error ? e.message : String(e));
       return;
@@ -1107,12 +1108,14 @@ export default function Editor() {
                 density={density}
                 onDensity={setDensity}
                 usesPlaceholder={designUsesBatch(design)}
+                texts={designTexts(design)}
               />
             )}
           </div>
           <div className="sticky bottom-0 border-t border-neutral-200 bg-white p-4">
             <PrintBar
               batch={batch}
+              texts={designTexts(design)}
               copies={copies}
               state={status.state}
               progress={status.progress}

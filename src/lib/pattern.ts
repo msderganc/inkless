@@ -217,6 +217,25 @@ function run(from: number, to: number, by: number): number[] {
   );
 }
 
+/** Looks like a range or list ("1-10", "A..D", "a|b") rather than a {name}. */
+export function looksLikeGroup(raw: string): boolean {
+  const t = raw.trim();
+  if (t.includes("|")) return true;
+  const range = splitRange(t.split(":")[0] ?? "");
+  if (!range) return false;
+  const [a, b] = [range[0].trim(), range[1].trim()];
+  const letters = /^[a-z]{1,3}$/i;
+  return (
+    (letters.test(a) && letters.test(b)) ||
+    (parseAmount(a) !== null && parseAmount(b) !== null)
+  );
+}
+
+/** The values of one {group} in label text; throws PatternError if it's malformed. */
+export function groupValues(raw: string): string[] {
+  return expandGroup(raw);
+}
+
 /** Parse a pattern into literal text and groups. Throws PatternError on a bad group. */
 export function parsePattern(pattern: string): Segment[] {
   const segs: Segment[] = [];
@@ -425,4 +444,20 @@ export const PATTERN_EXAMPLES: { pattern: string; note: string }[] = [
   { pattern: "Part {100-500:25}", note: "step 25" },
   { pattern: "Chapter {1-12:ROMAN}", note: "I…XII" },
   { pattern: "{Mon|Tue|Wed|Thu|Fri} {AM|PM}", note: "lists" },
+];
+
+/** Ranges to insert into label text ("Insert variable"); each makes one label per value. */
+export const RANGE_EXAMPLES: { pattern: string; note: string }[] = [
+  { pattern: "{1-10}", note: "1 to 10" },
+  { pattern: "{01-24}", note: "01 to 24, zero-padded" },
+  { pattern: "{0-100:5}", note: "every 5" },
+  { pattern: "{10-1}", note: "counting down" },
+  { pattern: "{A-Z}", note: "letters" },
+  { pattern: "{A-D}{1-5}", note: "A1 to D5 (20 labels)" },
+  { pattern: '{1/4-2:1/4}"', note: "every 1/4 inch" },
+  { pattern: '{1/16-1:1/16}"', note: "every 1/16 inch" },
+  { pattern: "{0.5-5:0.5} mm", note: "every 0.5 mm" },
+  { pattern: "{1-12:ROMAN}", note: "I to XII" },
+  { pattern: "{Red|Green|Blue}", note: "a list" },
+  { pattern: "M{3|4|5|6|8|10}", note: "metric bolt sizes" },
 ];

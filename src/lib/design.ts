@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseDateVar } from "./datevars";
+import { looksLikeGroup } from "./pattern";
 
 /**
  * A label design. Coordinates are mm from the label's top-left corner, with x across the
@@ -204,13 +205,22 @@ export function newIcon(
 /** Matches {name}, {n}, {today}, {today+7:m/d/yy}, {Due Date}… (no nested braces). */
 export const PLACEHOLDER_RE = /\{([^{}\n]{1,60})\}/g;
 
+/** Text of the visible text elements (where ranges like {1-10} can be written). */
+export function designTexts(design: Design): string[] {
+  return design.elements.flatMap((e) =>
+    e.kind === "text" && !e.hidden ? [e.text] : [],
+  );
+}
+
 /** True if any text uses a placeholder that a batch (sequence, list or CSV column) fills. */
 export function designUsesBatch(design: Design): boolean {
   return design.elements.some(
     (e) =>
       e.kind === "text" &&
       !e.hidden &&
-      [...e.text.matchAll(PLACEHOLDER_RE)].some((m) => !parseDateVar(m[1]!)),
+      [...e.text.matchAll(PLACEHOLDER_RE)].some(
+        (m) => !parseDateVar(m[1]!) && !looksLikeGroup(m[1]!),
+      ),
   );
 }
 

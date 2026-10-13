@@ -4,7 +4,7 @@ import { CircleStop, FileSpreadsheet, Printer } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import {
   BatchError,
-  batchRecords,
+  jobRecords,
   type BatchInput,
   type BatchSpec,
   batchSpecSchema,
@@ -32,6 +32,8 @@ interface Props {
   density: number;
   onDensity: (n: number) => void;
   usesPlaceholder: boolean;
+  /** The label's visible text, for ranges like {1-10} written in the design. */
+  texts: string[];
 }
 
 const field = "rounded border border-neutral-300 px-2 py-1";
@@ -61,9 +63,10 @@ type Summary =
   | { count: number; first?: string | null; last?: string | null }
   | { error: string };
 
-function summarize(batch: BatchSpec): Summary {
+/** How many labels the job makes: batch rows × ranges written in the label's text. */
+function summarize(batch: BatchSpec, texts: string[]): Summary {
   try {
-    const v = batchRecords(batch);
+    const v = jobRecords(batch, texts);
     if (v[0] === null) return { count: 1 };
     return {
       count: v.length,
@@ -85,7 +88,10 @@ export function PrintSettings(p: Props) {
   );
   const [csvError, setCsvError] = useState<string>();
   const csvInput = useRef<HTMLInputElement>(null);
-  const summary = useMemo(() => summarize(p.batch), [p.batch]);
+  const summary = useMemo(
+    () => summarize(p.batch, p.texts),
+    [p.batch, p.texts],
+  );
 
   const loadCsv = async (file: File) => {
     setCsvError(undefined);
@@ -150,7 +156,9 @@ export function PrintSettings(p: Props) {
       <fieldset className="space-y-2 text-sm">
         <legend className="mb-1 text-xs text-neutral-600">Batch</legend>
         <div className="flex flex-wrap gap-x-3 gap-y-1">
-          {BATCH_KINDS.map(([k, label]) => (
+          {BATCH_KINDS.filter(
+            ([k]) => k !== "pattern" || p.batch.kind === "pattern",
+          ).map(([k, label]) => (
             <label key={k} className="flex items-center gap-1">
               <input
                 type="radio"
@@ -329,8 +337,10 @@ export function PrintSettings(p: Props) {
         )}
         <p className="text-xs text-neutral-500">
           In text: <code>{"{n}"}</code> batch value, <code>{"{i}"}</code> label
-          number, <code>{"{total}"}</code> labels in the batch. Dates and times:
-          use Insert variable on a text item.
+          number, <code>{"{total}"}</code> labels in the batch. Ranges like{" "}
+          <code>{"{1-10}"}</code> or <code>{"{A-D}"}</code> typed in the label
+          print one label per value (they multiply with this batch). Dates,
+          times and ranges: use Insert variable on a text item.
         </p>
       </fieldset>
     </section>
@@ -339,6 +349,7 @@ export function PrintSettings(p: Props) {
 
 interface BarProps {
   batch: BatchSpec;
+  texts: string[];
   copies: number;
   state: string;
   progress?: { done: number; total: number };
@@ -351,7 +362,10 @@ interface BarProps {
 
 /** Always-visible Print button with the label count, why it can't print, and progress. */
 export function PrintBar(p: BarProps) {
-  const summary = useMemo(() => summarize(p.batch), [p.batch]);
+  const summary = useMemo(
+    () => summarize(p.batch, p.texts),
+    [p.batch, p.texts],
+  );
   const printing = p.state === "printing" || p.state === "cancelling";
   const labels = "count" in summary ? summary.count * p.copies : 0;
   const blocked =

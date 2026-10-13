@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { batchRecords, substitute } from "./batch";
+import { batchRecords, jobRecords, recordLabel, substitute } from "./batch";
+import { designUsesBatch, emptyDesign, newText } from "./design";
 import {
   expandPattern,
   formatAmount,
@@ -163,5 +164,64 @@ describe("pattern and sequence batches", () => {
     expect(sixteenths.slice(0, 4)).toEqual(['1/16"', '1/8"', '3/16"', '1/4"']);
     expect(sixteenths.at(-1)).toBe('1"');
     for (const p of LIST_PRESETS) expect(p.items.length).toBeGreaterThan(3);
+  });
+});
+
+describe("ranges written in the label text", () => {
+  it("make one label per value, multiplying in order of appearance", () => {
+    const recs = jobRecords({ kind: "none" }, ["Bin {A-B}{1-3}"]);
+    expect(recs).toHaveLength(6);
+    expect(recs.map((r) => substitute("Bin {A-B}{1-3}", r))).toEqual([
+      "Bin A1",
+      "Bin A2",
+      "Bin A3",
+      "Bin B1",
+      "Bin B2",
+      "Bin B3",
+    ]);
+    expect(recordLabel({ kind: "none" }, recs[4]!)).toBe("B · 2");
+    expect(substitute("{i}/{total}", recs[4]!)).toBe("5/6");
+  });
+
+  it("share one counter when the same range appears twice", () => {
+    const texts = ["{1-3}", "Box {1-3} of 3"];
+    const recs = jobRecords({ kind: "none" }, texts);
+    expect(recs).toHaveLength(3);
+    expect(texts.map((t) => substitute(t, recs[1]!))).toEqual([
+      "2",
+      "Box 2 of 3",
+    ]);
+  });
+
+  it("multiply with a batch, and leave names, dates and CSV columns alone", () => {
+    const recs = jobRecords({ kind: "list", items: ["Red", "Blue"] }, [
+      "{n} {S|M}",
+      "{today-1:yyyy} {name}",
+    ]);
+    expect(recs.map((r) => substitute("{n} {S|M}", r))).toEqual([
+      "Red S",
+      "Red M",
+      "Blue S",
+      "Blue M",
+    ]);
+    expect(recordLabel({ kind: "list", items: [] }, recs[3]!)).toBe("Blue · M");
+    // A spreadsheet column that looks like a range is the column.
+    const csv = jobRecords(
+      { kind: "csv", fileName: "x", columns: ["a-b"], rows: [["v1"], ["v2"]] },
+      ["{a-b}"],
+    );
+    expect(csv.map((r) => substitute("{a-b}", r))).toEqual(["v1", "v2"]);
+  });
+
+  it("aren't batch placeholders, and report oversize jobs", () => {
+    const d = (text: string) => ({
+      ...emptyDesign("x"),
+      elements: [{ ...newText(0, 0, 5, 5), text }],
+    });
+    expect(designUsesBatch(d("Bin {A-D}{1-5} {1/4-2:1/4} {x|y}"))).toBe(false);
+    expect(() => jobRecords({ kind: "none" }, ["{1-30}{A-Z}"])).toThrow(
+      /780 labels/,
+    );
+    expect(jobRecords({ kind: "none" }, ["Plain {name}"])).toEqual([null]);
   });
 });

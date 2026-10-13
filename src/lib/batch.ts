@@ -5,6 +5,8 @@ import {
   type AmountFormat,
   expandPattern,
   formatAmount,
+  groupValues,
+  looksLikeGroup,
   parsePattern,
   PatternError,
 } from "./pattern";
@@ -65,11 +67,84 @@ export class BatchError extends Error {}
  * batch values. Throws BatchError for empty or oversize batches.
  */
 export function batchRecords(spec: BatchInput): (BatchRecord | null)[] {
-  const recs = rawRecords(spec);
+  return withIndex(rawRecords(spec));
+}
+
+/** Every batch also offers {i} (label number) and {total}, unless a column already uses them. */
+function withIndex(recs: (BatchRecord | null)[]): (BatchRecord | null)[] {
   if (recs[0] === null) return recs;
-  // Every batch also offers {i} (label number) and {total}, unless a column already uses them.
   const total = String(recs.length);
   return recs.map((r, k) => ({ i: String(k + 1), total, ...r }));
+}
+
+/** Record key holding the current value of a range written in label text. */
+const groupKey = (raw: string) => `#range:${raw.trim()}`;
+/** Record key with a short description of the label (preview stepper, summary). */
+const LABEL_KEY = "#label";
+
+/**
+ * Ranges and lists typed straight into label text ({1-10}, {A-D}, {1/4-2:1/4}, {red|blue}),
+ * in order of first appearance. The same text in two places is one counter. Names that a
+ * spreadsheet column or a date variable uses are not ranges.
+ */
+export function designRanges(
+  texts: string[],
+  columns: string[] = [],
+): { key: string; values: string[] }[] {
+  const taken = new Set(columns.map((c) => c.toLowerCase()));
+  const out: { key: string; values: string[] }[] = [];
+  for (const text of texts)
+    for (const m of text.matchAll(PLACEHOLDER_RE)) {
+      const key = m[1]!.trim();
+      if (out.some((g) => g.key === key)) continue;
+      if (taken.has(key.toLowerCase()) || parseDateVar(key)) continue;
+      if (!looksLikeGroup(key)) continue;
+      try {
+        out.push({ key, values: groupValues(key) });
+      } catch (e) {
+        if (e instanceof PatternError) throw new BatchError(e.message);
+        throw e;
+      }
+    }
+  return out;
+}
+
+/**
+ * The labels a print job makes: each batch record (or the single label) times every
+ * combination of the ranges written in the label's text (last range changes fastest).
+ */
+export function jobRecords(
+  spec: BatchInput,
+  texts: string[],
+): (BatchRecord | null)[] {
+  const base = rawRecords(spec);
+  const ranges = designRanges(texts, spec.kind === "csv" ? spec.columns : []);
+  if (ranges.length === 0) return withIndex(base);
+  const combos = ranges.reduce((n, g) => n * g.values.length, 1);
+  const size = base.length * combos;
+  if (size > MAX_BATCH)
+    throw new BatchError(
+      `That makes ${size} labels; a batch is limited to ${MAX_BATCH}.`,
+    );
+  const out: BatchRecord[] = [];
+  for (const b of base) {
+    for (let k = 0; k < combos; k++) {
+      let rest = k;
+      const rec: BatchRecord = { ...(b ?? {}) };
+      const picked: string[] = [];
+      for (let g = ranges.length - 1; g >= 0; g--) {
+        const vals = ranges[g]!.values;
+        const v = vals[rest % vals.length]!;
+        rest = Math.floor(rest / vals.length);
+        rec[groupKey(ranges[g]!.key)] = v;
+        picked.unshift(v);
+      }
+      const head = b ? recordLabel(spec, b) : null;
+      rec[LABEL_KEY] = [head, picked.join(" · ")].filter(Boolean).join(" · ");
+      out.push(rec);
+    }
+  }
+  return withIndex(out);
 }
 
 function rawRecords(spec: BatchInput): (BatchRecord | null)[] {
@@ -137,10 +212,11 @@ function rawRecords(spec: BatchInput): (BatchRecord | null)[] {
 
 /** Short description of a record for the preview stepper and batch summary. */
 export function recordLabel(
-  spec: BatchSpec,
+  spec: BatchInput,
   rec: BatchRecord | null,
 ): string | null {
   if (!rec) return null;
+  if (Object.hasOwn(rec, LABEL_KEY)) return rec[LABEL_KEY]!;
   if (spec.kind === "csv") return rec[spec.columns[0]!] ?? rec.n ?? null;
   return rec.n ?? null;
 }
@@ -242,6 +318,9 @@ export function substitute(
   );
   return text.replace(PLACEHOLDER_RE, (match, rawKey: string) => {
     const key = rawKey.trim();
+    // A range typed in the label ({1-10}, {A-D}…) has this label's value in the record.
+    const range = groupKey(key);
+    if (record && Object.hasOwn(record, range)) return record[range]!;
     // A batch column with the same name ({date}, {year}…) wins, except {today} and {now}.
     const own = lower.get(key.toLowerCase());
     const date = parseDateVar(key);
