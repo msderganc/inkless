@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseDateVar } from "./datevars";
 
 /**
  * A label design. Coordinates are mm from the label's top-left corner, with x across the
@@ -200,10 +201,7 @@ export function newIcon(
   };
 }
 
-/** {today}, {today+7}, {today - 3}: used by both substitution and placeholder detection. */
-export const TODAY_RE = /^today\s*(?:([+-])\s*(\d{1,4}))?$/i;
-
-/** Matches {name}, {n}, {today}, {today+7}, {Due Date}… (no nested braces). */
+/** Matches {name}, {n}, {today}, {today+7:m/d/yy}, {Due Date}… (no nested braces). */
 export const PLACEHOLDER_RE = /\{([^{}\n]{1,60})\}/g;
 
 /** True if any text uses a placeholder that a batch (sequence, list or CSV column) fills. */
@@ -212,9 +210,7 @@ export function designUsesBatch(design: Design): boolean {
     (e) =>
       e.kind === "text" &&
       !e.hidden &&
-      [...e.text.matchAll(PLACEHOLDER_RE)].some(
-        (m) => !TODAY_RE.test(m[1]!.trim()),
-      ),
+      [...e.text.matchAll(PLACEHOLDER_RE)].some((m) => !parseDateVar(m[1]!)),
   );
 }
 

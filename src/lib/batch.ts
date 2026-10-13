@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { PLACEHOLDER_RE, TODAY_RE } from "./design";
+import { defaultDate, parseDateVar, renderDateVar } from "./datevars";
+import { PLACEHOLDER_RE } from "./design";
+import {
+  type AmountFormat,
+  expandPattern,
+  formatAmount,
+  parsePattern,
+  PatternError,
+} from "./pattern";
 
 /** Upper bound on labels in one batch job (bounded queue requirement). */
 export const MAX_BATCH = 500;
@@ -12,13 +20,23 @@ export const batchSpecSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("none") }),
   z.object({
     kind: z.literal("sequence"),
-    start: z.number().int(),
-    step: z.number().int().positive(),
+    /** Start and step may be fractional (1/4, 0.5) when shown as fractions or decimals. */
+    start: z.number().finite().min(-1e9).max(1e9),
+    step: z.number().finite().positive().max(1e9),
     count: z.number().int().positive(),
     /** Zero-pad numbers to this many digits (0 = no padding). */
     pad: z.number().int().min(0).max(12),
     prefix: z.string().max(50),
     suffix: z.string().max(50),
+    /** Added later; older batches count in whole numbers. */
+    style: z.enum(["number", "decimal", "fraction"]).default("number"),
+    decimals: z.number().int().min(0).max(6).default(2),
+    denominator: z.number().int().min(2).max(128).default(16),
+  }),
+  /** Brace pattern, e.g. "Bin {A-D}{1-5}" (see pattern.ts). */
+  z.object({
+    kind: z.literal("pattern"),
+    pattern: z.string().max(200),
   }),
   z.object({
     kind: z.literal("list"),
@@ -34,34 +52,66 @@ export const batchSpecSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type BatchSpec = z.infer<typeof batchSpecSchema>;
+/** A batch as written (newer fields may be missing; defaults apply). */
+export type BatchInput = z.input<typeof batchSpecSchema>;
 
 /** One label's placeholder values, e.g. { n: "7" } or { name: "Hailey", qty: "2" }. */
 export type BatchRecord = Record<string, string>;
 
 export class BatchError extends Error {}
 
-function formatNumber(n: number, pad: number): string {
-  const digits = Math.abs(n).toString().padStart(pad, "0");
-  return n < 0 ? `-${digits}` : digits;
-}
-
 /**
  * Placeholder values for each label of a batch. `[null]` means a single label without
  * batch values. Throws BatchError for empty or oversize batches.
  */
-export function batchRecords(spec: BatchSpec): (BatchRecord | null)[] {
+export function batchRecords(spec: BatchInput): (BatchRecord | null)[] {
+  const recs = rawRecords(spec);
+  if (recs[0] === null) return recs;
+  // Every batch also offers {i} (label number) and {total}, unless a column already uses them.
+  const total = String(recs.length);
+  return recs.map((r, k) => ({ i: String(k + 1), total, ...r }));
+}
+
+function rawRecords(spec: BatchInput): (BatchRecord | null)[] {
   switch (spec.kind) {
     case "none":
       return [null];
     case "sequence": {
       if (spec.count > MAX_BATCH)
         throw new BatchError(`A batch is limited to ${MAX_BATCH} labels`);
+      const fmt: AmountFormat = {
+        style: spec.style ?? "number",
+        decimals: spec.decimals ?? 2,
+        denominator: spec.denominator ?? 16,
+        pad: spec.pad,
+      };
       return Array.from({ length: spec.count }, (_, i) => ({
         n:
           spec.prefix +
-          formatNumber(spec.start + i * spec.step, spec.pad) +
+          formatAmount(
+            Math.round((spec.start + i * spec.step) * 1e9) / 1e9,
+            fmt,
+          ) +
           spec.suffix,
       }));
+    }
+    case "pattern": {
+      if (!spec.pattern.trim()) throw new BatchError("Type a pattern first");
+      try {
+        const segs = parsePattern(spec.pattern);
+        if (!segs.some((x) => "values" in x))
+          throw new BatchError(
+            "Add a range or list in braces, e.g. {1-10} or {A-D}",
+          );
+        return expandPattern(segs, MAX_BATCH).map((r) => {
+          const rec: BatchRecord = { n: r.text };
+          r.groups.forEach((g, k) => (rec[`g${k + 1}`] = g));
+          return rec;
+        });
+      } catch (e) {
+        if (e instanceof PatternError) throw new BatchError(e.message);
+        throw e;
+      }
     }
     case "list": {
       const items = spec.items.map((s) => s.trim()).filter((s) => s.length > 0);
@@ -173,16 +223,12 @@ export function parseList(text: string): string[] {
 export type DateFormatter = (d: Date) => string;
 
 /** Short local date, e.g. 12/10/2026 in Australia. */
-export const defaultDateFormat: DateFormatter = (d) =>
-  d.toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+export const defaultDateFormat: DateFormatter = defaultDate;
 
 /**
- * Fill placeholders: batch values ({n}, {name}, … matched case-insensitively), {today}, and
- * {today+N} / {today-N} (N days). Unknown placeholders are left as typed.
+ * Fill placeholders: batch values ({n}, {name}, … matched case-insensitively) and date
+ * variables ({today}, {today+30:m/d/yy}, {time}… see datevars.ts). Unknown placeholders are
+ * left as typed.
  */
 export function substitute(
   text: string,
@@ -196,13 +242,11 @@ export function substitute(
   );
   return text.replace(PLACEHOLDER_RE, (match, rawKey: string) => {
     const key = rawKey.trim();
-    const date = TODAY_RE.exec(key);
-    if (date) {
-      const d = new Date(now);
-      if (date[1])
-        d.setDate(d.getDate() + (date[1] === "-" ? -1 : 1) * Number(date[2]));
-      return formatDate(d);
-    }
-    return lower.get(key.toLowerCase()) ?? match;
+    // A batch column with the same name ({date}, {year}…) wins, except {today} and {now}.
+    const own = lower.get(key.toLowerCase());
+    const date = parseDateVar(key);
+    if (date && (own === undefined || /^(today|now)\b/i.test(key)))
+      return renderDateVar(date, now, formatDate);
+    return own ?? match;
   });
 }

@@ -5,13 +5,22 @@ import { useMemo, useRef, useState } from "react";
 import {
   BatchError,
   batchRecords,
+  type BatchInput,
   type BatchSpec,
+  batchSpecSchema,
   MAX_BATCH,
   MAX_FILE_NAME_CHARS,
   parseCsv,
   parseList,
   recordLabel,
 } from "~/lib/batch";
+import {
+  formatAmount,
+  inferFormat,
+  LIST_PRESETS,
+  parseAmount,
+  PATTERN_EXAMPLES,
+} from "~/lib/pattern";
 import { MAX_COPIES } from "~/lib/printer/session";
 import { IconButton } from "./IconButton";
 
@@ -26,6 +35,27 @@ interface Props {
 }
 
 const field = "rounded border border-neutral-300 px-2 py-1";
+
+const BATCH_KINDS = [
+  ["none", "Single"],
+  ["sequence", "Numbers"],
+  ["list", "List"],
+  ["pattern", "Pattern"],
+  ["csv", "Spreadsheet"],
+] as const;
+
+const NEW_SEQUENCE: BatchSpec = {
+  kind: "sequence",
+  start: 1,
+  step: 1,
+  count: 10,
+  pad: 0,
+  prefix: "",
+  suffix: "",
+  style: "number",
+  decimals: 2,
+  denominator: 16,
+};
 
 type Summary =
   | { count: number; first?: string | null; last?: string | null }
@@ -49,6 +79,9 @@ function summarize(batch: BatchSpec): Summary {
 export function PrintSettings(p: Props) {
   const [listText, setListText] = useState(
     p.batch.kind === "list" ? p.batch.items.join("\n") : "",
+  );
+  const [patternText, setPatternText] = useState(
+    p.batch.kind === "pattern" ? p.batch.pattern : "Bin {A-D}{1-5}",
   );
   const [csvError, setCsvError] = useState<string>();
   const csvInput = useRef<HTMLInputElement>(null);
@@ -116,8 +149,8 @@ export function PrintSettings(p: Props) {
 
       <fieldset className="space-y-2 text-sm">
         <legend className="mb-1 text-xs text-neutral-600">Batch</legend>
-        <div className="flex gap-3">
-          {(["none", "sequence", "list", "csv"] as const).map((k) => (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {BATCH_KINDS.map(([k, label]) => (
             <label key={k} className="flex items-center gap-1">
               <input
                 type="radio"
@@ -130,26 +163,14 @@ export function PrintSettings(p: Props) {
                         k === "none"
                           ? { kind: "none" }
                           : k === "sequence"
-                            ? {
-                                kind: "sequence",
-                                start: 1,
-                                step: 1,
-                                count: 10,
-                                pad: 0,
-                                prefix: "",
-                                suffix: "",
-                              }
-                            : { kind: "list", items: parseList(listText) },
+                            ? NEW_SEQUENCE
+                            : k === "pattern"
+                              ? { kind: "pattern", pattern: patternText }
+                              : { kind: "list", items: parseList(listText) },
                       )
                 }
               />
-              {k === "none"
-                ? "Single"
-                : k === "sequence"
-                  ? "Numbers"
-                  : k === "list"
-                    ? "List"
-                    : "Spreadsheet"}
+              {label}
             </label>
           ))}
         </div>
@@ -158,15 +179,95 @@ export function PrintSettings(p: Props) {
           <SequenceFields b={p.batch} onChange={p.onBatch} />
         )}
         {p.batch.kind === "list" && (
-          <textarea
-            className={`${field} min-h-24 w-full font-mono text-xs`}
-            placeholder="One value per line"
-            value={listText}
-            onChange={(e) => {
-              setListText(e.target.value);
-              p.onBatch({ kind: "list", items: parseList(e.target.value) });
-            }}
-          />
+          <div className="space-y-1">
+            <select
+              className={`${field} w-full text-sm`}
+              aria-label="Fill the list with a preset"
+              value=""
+              onChange={(e) => {
+                const preset = LIST_PRESETS[Number(e.target.value)];
+                if (!preset) return;
+                const text = preset.items.join("\n");
+                setListText(text);
+                p.onBatch({ kind: "list", items: preset.items });
+              }}
+            >
+              <option value="">Fill with a preset list…</option>
+              {LIST_PRESETS.map((l, i) => (
+                <option key={l.name} value={i}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <textarea
+              className={`${field} min-h-24 w-full font-mono text-xs`}
+              placeholder="One value per line"
+              value={listText}
+              onChange={(e) => {
+                setListText(e.target.value);
+                p.onBatch({ kind: "list", items: parseList(e.target.value) });
+              }}
+            />
+          </div>
+        )}
+        {p.batch.kind === "pattern" && (
+          <div className="space-y-1.5">
+            <input
+              className={`${field} w-full font-mono text-sm`}
+              aria-label="Pattern"
+              placeholder="e.g. Bin {A-D}{1-5}"
+              maxLength={200}
+              value={patternText}
+              onChange={(e) => {
+                setPatternText(e.target.value);
+                p.onBatch({ kind: "pattern", pattern: e.target.value });
+              }}
+            />
+            <div className="flex flex-wrap gap-1">
+              {PATTERN_EXAMPLES.map((x) => (
+                <button
+                  key={x.pattern}
+                  type="button"
+                  title={x.note}
+                  className="rounded-full border border-neutral-300 px-2 py-0.5 font-mono text-[11px] hover:bg-neutral-100"
+                  onClick={() => {
+                    setPatternText(x.pattern);
+                    p.onBatch({ kind: "pattern", pattern: x.pattern });
+                  }}
+                >
+                  {x.pattern}
+                </button>
+              ))}
+            </div>
+            <details className="text-xs text-neutral-600">
+              <summary className="cursor-pointer">Pattern help</summary>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                <li>
+                  <code>{"{1-10}"}</code> numbers · <code>{"{01-10}"}</code>{" "}
+                  zero-padded · <code>{"{10-1}"}</code> counts down
+                </li>
+                <li>
+                  <code>{"{0-100:5}"}</code> step 5 ·{" "}
+                  <code>{"{1/4-2:1/4}"}</code> fractions ·{" "}
+                  <code>{"{0.5-3:0.5}"}</code> decimals
+                </li>
+                <li>
+                  <code>{"{A-Z}"}</code> letters · <code>{"{AA-AF}"}</code> ·{" "}
+                  <code>{"{1-12:ROMAN}"}</code> or <code>:roman</code>
+                </li>
+                <li>
+                  <code>{"{red|green|blue}"}</code> a list ·{" "}
+                  <code>{"{-5..5}"}</code> negatives
+                </li>
+                <li>
+                  Several groups make every combination (the last changes
+                  fastest). On the label, <code>{"{n}"}</code> is the whole
+                  result; <code>{"{g1}"}</code>, <code>{"{g2}"}</code>… are each
+                  group.
+                </li>
+              </ul>
+            </details>
+          </div>
         )}
 
         <input
@@ -216,9 +317,6 @@ export function PrintSettings(p: Props) {
               : "Add {n} to a text box to print the batch value on each label."}
           </p>
         )}
-        <p className="text-xs text-neutral-500">
-          Dates: {"{today}"}, or {"{today+7}"} for a week from now.
-        </p>
         {"error" in summary ? (
           <p className="text-xs text-red-700">{summary.error}</p>
         ) : (
@@ -229,6 +327,11 @@ export function PrintSettings(p: Props) {
             </p>
           )
         )}
+        <p className="text-xs text-neutral-500">
+          In text: <code>{"{n}"}</code> batch value, <code>{"{i}"}</code> label
+          number, <code>{"{total}"}</code> labels in the batch. Dates and times:
+          use Insert variable on a text item.
+        </p>
       </fieldset>
     </section>
   );
@@ -326,18 +429,62 @@ export function PrintBar(p: BarProps) {
   );
 }
 
+type Sequence = Extract<BatchInput, { kind: "sequence" }>;
+
+/** Numbers: start/step accept 1/4, 1 1/4 or 0.5; shown as whole numbers, decimals or fractions. */
 function SequenceFields({
   b,
   onChange,
 }: {
-  b: Extract<BatchSpec, { kind: "sequence" }>;
+  b: Sequence;
   onChange: (b: BatchSpec) => void;
 }) {
-  const num = (
-    label: string,
-    key: "start" | "step" | "count" | "pad",
-    min: number,
-  ) => (
+  const style = b.style ?? "number";
+  const fmt = {
+    style,
+    decimals: b.decimals ?? 2,
+    denominator: b.denominator ?? 16,
+    pad: b.pad,
+  };
+  const [startText, setStartText] = useState(formatAmount(b.start, fmt));
+  const [stepText, setStepText] = useState(formatAmount(b.step, fmt));
+  const [bad, setBad] = useState<string>();
+  const update = (patch: Partial<Sequence>) =>
+    onChange(batchSpecSchema.parse({ ...b, ...patch }));
+
+  /** Typing "1/4" or "0.25" switches to fractions/decimals automatically. */
+  const amountField = (label: string, key: "start" | "step") => (
+    <label className="flex flex-col text-xs text-neutral-600">
+      {label}
+      <input
+        className={`${field} w-20 text-sm text-neutral-900`}
+        value={key === "start" ? startText : stepText}
+        onChange={(e) => {
+          const text = e.target.value;
+          (key === "start" ? setStartText : setStepText)(text);
+          const a = parseAmount(text);
+          if (!a || (key === "step" && a.value <= 0)) {
+            setBad(`${label} must be a number like 2, 0.5 or 1/4.`);
+            return;
+          }
+          setBad(undefined);
+          const other = parseAmount(key === "start" ? stepText : startText);
+          const f = inferFormat(other ? [a, other] : [a]);
+          update({
+            [key]: a.value,
+            ...(f.style !== "number"
+              ? {
+                  style: f.style,
+                  decimals: f.decimals || (b.decimals ?? 2),
+                  denominator: f.denominator,
+                }
+              : {}),
+          });
+        }}
+      />
+    </label>
+  );
+  const int = (label: string, key: "count" | "pad", min: number) => (
     <label className="flex flex-col text-xs text-neutral-600">
       {label}
       <input
@@ -347,7 +494,7 @@ function SequenceFields({
         value={b[key]}
         onChange={(e) => {
           const v = Math.round(Number(e.target.value));
-          if (Number.isFinite(v)) onChange({ ...b, [key]: Math.max(min, v) });
+          if (Number.isFinite(v)) update({ [key]: Math.max(min, v) });
         }}
       />
     </label>
@@ -359,18 +506,73 @@ function SequenceFields({
         className={`${field} w-20 text-sm text-neutral-900`}
         maxLength={50}
         value={b[key]}
-        onChange={(e) => onChange({ ...b, [key]: e.target.value })}
+        onChange={(e) => update({ [key]: e.target.value })}
       />
     </label>
   );
   return (
-    <div className="flex flex-wrap gap-2">
-      {text("Prefix", "prefix")}
-      {num("Start", "start", -999999)}
-      {num("Step", "step", 1)}
-      {num("Count", "count", 1)}
-      {num("Digits", "pad", 0)}
-      {text("Suffix", "suffix")}
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {text("Prefix", "prefix")}
+        {amountField("Start", "start")}
+        {amountField("Step", "step")}
+        {int("Count", "count", 1)}
+        {text("Suffix", "suffix")}
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col text-xs text-neutral-600">
+          Show as
+          <select
+            className={`${field} text-sm text-neutral-900`}
+            value={style}
+            onChange={(e) =>
+              update({ style: e.target.value as Sequence["style"] })
+            }
+          >
+            <option value="number">Whole numbers</option>
+            <option value="decimal">Decimals</option>
+            <option value="fraction">Fractions (1 1/4)</option>
+          </select>
+        </label>
+        {style === "number" && int("Digits", "pad", 0)}
+        {style === "decimal" && (
+          <label className="flex flex-col text-xs text-neutral-600">
+            Places
+            <input
+              className={`${field} w-16 text-sm text-neutral-900`}
+              type="number"
+              min={0}
+              max={6}
+              value={b.decimals ?? 2}
+              onChange={(e) =>
+                update({
+                  decimals: Math.min(
+                    6,
+                    Math.max(0, Math.round(Number(e.target.value) || 0)),
+                  ),
+                })
+              }
+            />
+          </label>
+        )}
+        {style === "fraction" && (
+          <label className="flex flex-col text-xs text-neutral-600">
+            Round to
+            <select
+              className={`${field} text-sm text-neutral-900`}
+              value={b.denominator ?? 16}
+              onChange={(e) => update({ denominator: Number(e.target.value) })}
+            >
+              {[2, 4, 8, 16, 32, 64].map((d) => (
+                <option key={d} value={d}>
+                  1/{d}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      {bad && <p className="text-xs text-red-700">{bad}</p>}
     </div>
   );
 }

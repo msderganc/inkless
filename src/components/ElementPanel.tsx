@@ -3,6 +3,7 @@
 import {
   AlignCenter,
   Bookmark,
+  Braces,
   AlignHorizontalJustifyCenter,
   AlignHorizontalJustifyEnd,
   AlignHorizontalJustifyStart,
@@ -32,7 +33,9 @@ import {
   type TextElement,
 } from "~/lib/design";
 import { guessIconCategories, loadIconLibrary, lucideToSvg } from "~/lib/icons";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { substitute } from "~/lib/batch";
+import { VARIABLE_PRESETS } from "~/lib/datevars";
 import {
   canListInstalledFonts,
   listInstalledFonts,
@@ -264,6 +267,18 @@ function TextFields({
     mergeFontLists(WINDOWS_FONTS, installedFonts ?? [], [el.fontFamily]),
   );
   const [fontNote, setFontNote] = useState<string>();
+  const textArea = useRef<HTMLTextAreaElement>(null);
+  /** Insert at the cursor (or replace the selection), then put the cursor after it. */
+  const insert = (value: string) => {
+    const ta = textArea.current;
+    const start = ta?.selectionStart ?? el.text.length;
+    const end = ta?.selectionEnd ?? el.text.length;
+    set({ text: el.text.slice(0, start) + value + el.text.slice(end) });
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(start + value.length, start + value.length);
+    });
+  };
   const loadInstalled = async () => {
     try {
       installedFonts = await listInstalledFonts();
@@ -278,13 +293,15 @@ function TextFields({
   return (
     <div className="space-y-2">
       <label className="flex flex-col text-xs text-neutral-600">
-        Text (use {"{n}"} for the batch value)
+        Text
         <textarea
+          ref={textArea}
           className={`${field} min-h-16 text-sm text-neutral-900`}
           value={el.text}
           onChange={(e) => set({ text: e.target.value })}
         />
       </label>
+      <VariableMenu onInsert={insert} />
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col text-xs text-neutral-600">
           Font
@@ -561,6 +578,41 @@ function ThicknessSlider({
         </p>
       )}
     </div>
+  );
+}
+
+/** "Insert variable": batch value, dates in many formats, times and date codes, with examples. */
+function VariableMenu({ onInsert }: { onInsert: (v: string) => void }) {
+  const now = new Date();
+  return (
+    <label className="flex items-center gap-2 text-xs text-neutral-600">
+      <Braces size={14} aria-hidden />
+      <select
+        className={`${field} min-w-0 flex-1 text-sm text-neutral-900`}
+        aria-label="Insert variable"
+        value=""
+        onChange={(e) => {
+          if (e.target.value) onInsert(e.target.value);
+        }}
+      >
+        <option value="">Insert variable…</option>
+        <optgroup label="Batch">
+          <option value="{n}">Batch value {"{n}"}</option>
+          <option value="{i}">Label number in the batch {"{i}"}</option>
+          <option value="{total}">Labels in the batch {"{total}"}</option>
+          <option value="{i} of {total}">“3 of 10”</option>
+        </optgroup>
+        {VARIABLE_PRESETS.map((g) => (
+          <optgroup key={g.group} label={g.group}>
+            {g.items.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}: {substitute(p.value, null, now)}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </label>
   );
 }
 

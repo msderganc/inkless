@@ -29,11 +29,11 @@ describe("batchRecords", () => {
   it("sequence with padding, prefix and suffix", () => {
     expect(
       batchRecords(seq({ start: 8, pad: 3, prefix: "BIN-", suffix: "A" })),
-    ).toEqual([{ n: "BIN-008A" }, { n: "BIN-009A" }, { n: "BIN-010A" }]);
+    ).toMatchObject([{ n: "BIN-008A" }, { n: "BIN-009A" }, { n: "BIN-010A" }]);
   });
 
   it("sequence with step and negative start", () => {
-    expect(batchRecords(seq({ start: -2, step: 2, pad: 2 }))).toEqual([
+    expect(batchRecords(seq({ start: -2, step: 2, pad: 2 }))).toMatchObject([
       { n: "-02" },
       { n: "00" },
       { n: "02" },
@@ -41,10 +41,9 @@ describe("batchRecords", () => {
   });
 
   it("list trims and skips blanks", () => {
-    expect(batchRecords({ kind: "list", items: [" a ", "", "b"] })).toEqual([
-      { n: "a" },
-      { n: "b" },
-    ]);
+    expect(
+      batchRecords({ kind: "list", items: [" a ", "", "b"] }),
+    ).toMatchObject([{ n: "a" }, { n: "b" }]);
   });
 
   it("csv rows become records keyed by column, skipping blank rows", () => {
@@ -55,7 +54,7 @@ describe("batchRecords", () => {
       rows: [["Hailey", "3B"], ["", ""], ["Sam"]],
     };
     const recs = batchRecords(spec);
-    expect(recs).toEqual([
+    expect(recs).toMatchObject([
       { n: "1", name: "Hailey", class: "3B" },
       { n: "2", name: "Sam", class: "" },
     ]);

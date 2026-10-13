@@ -27,7 +27,9 @@ Built with the T3 stack (Next.js static export, TypeScript, Tailwind). tRPC, a d
 - New clears the design and batch but keeps the label size; Undo brings the old design back.
 - Layers: every item on the label, topmost first. Click to select (Shift adds), double-click to rename, move up/down, hide (hidden items don't print) and lock (locked items can't be dragged on the canvas).
 - New items are placed in free space instead of on top of existing ones.
-- Spreadsheet batches: import a CSV and use its columns as `{placeholders}`. `{today}` and `{today+7}` insert dates.
+- Batches: Numbers (start/step accept fractions like `1/4` or decimals like `0.5`, shown as whole numbers, decimals or mixed fractions such as `1 1/4`), List (with presets: fractional inches, drill bits, metric bolts, machine and wood screws, sockets, wire gauges, sizes, months, weekdays), Pattern and Spreadsheet (CSV columns become `{placeholders}`). Every batch also offers `{i}` (label number) and `{total}`.
+- Patterns expand braces into every combination: `Bin {A-D}{1-5}` (20 labels), `{01-24}`, `{0-100:5}`, `{1/4-2:1/4}"`, `{0.5-5:0.5} mm`, `{AA-AF}`, `{1-12:ROMAN}`, `{Red|Green|Blue}`, `{-5..5}`. `{n}` is the whole result; `{g1}`, `{g2}`… are each group.
+- Dates and times (Insert variable on a text item): `{today}`, `{today:m/d/yy}`, `{today+30:mmm d, yyyy}`, `{today+2w}`, `{today+3m:mm/yy}`, `{today+1y}`, `{time:h:mm AM/PM}`, `{now:m/d/yy h:mm AM/PM}`, `{weekday}`, `{month}`, `{year}`, `{julian}`, `{today:yyjjj}` and more. Formats use Excel-style tokens (d dd ddd dddd do, m mm mmm mmmm, yy yyyy, jjj, ww, q, h hh H HH, mm as minutes after h, ss, AM/PM, "quoted text").
 - Undo and redo (Ctrl+Z, Ctrl+Y), multi-select (Shift+click, Ctrl+A), group alignment, duplicate (Ctrl+D), and snapping to the centre, edges and other items (hold Alt to turn it off).
 
 ## Requirements
