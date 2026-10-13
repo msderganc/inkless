@@ -79,6 +79,19 @@ export interface Drawable {
 export interface RenderEnv {
   createCanvas(width: number, height: number): CanvasLike;
   loadImage(src: string): Promise<Drawable>;
+  /**
+   * Make sure these CSS fonts are ready before drawing. Canvas text in a font that is still
+   * loading is drawn invisibly and never repaired, so a label could render (or print) blank.
+   */
+  loadFonts?(fonts: string[]): Promise<void>;
+}
+
+/** The fonts a design's visible text uses (one CSS font string per style). */
+export function designFonts(design: Design): string[] {
+  const fonts = new Set<string>();
+  for (const el of design.elements)
+    if (el.kind === "text" && !el.hidden) fonts.add(fontString(el, 16));
+  return [...fonts];
 }
 
 export interface RenderOptions {
@@ -441,6 +454,7 @@ export async function renderPreview(
 ): Promise<CanvasLike> {
   const width = Math.max(1, Math.round(spec.widthMm * pxPerMm));
   const height = Math.max(1, Math.round(spec.heightMm * pxPerMm));
+  await env.loadFonts?.(designFonts(design));
   const canvas = env.createCanvas(width, height);
   // Browser and @napi-rs/canvas contexts both provide clip().
   const ctx = canvas.getContext("2d") as Ctx2D & { clip(): void };
@@ -472,6 +486,7 @@ export async function renderLabel(
   const window = printWindow(spec.widthMm);
   const width = window.labelDots;
   const height = mmToDots(spec.heightMm);
+  await env.loadFonts?.(designFonts(design));
   const canvas = env.createCanvas(width, height);
   const ctx = ctxOf(canvas);
   ctx.fillStyle = "#fff";

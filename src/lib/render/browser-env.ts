@@ -29,4 +29,12 @@ export const browserEnv: RenderEnv = {
     return c;
   },
   loadImage: (src): Promise<Drawable> => loadImage(src),
+  async loadFonts(fonts) {
+    if (typeof document === "undefined" || !("fonts" in document)) return;
+    // Installed fonts can also load lazily; wait (briefly) so text is never drawn invisibly.
+    const ready = Promise.all(
+      fonts.map((f) => document.fonts.load(f).catch(() => undefined)),
+    );
+    await Promise.race([ready, new Promise((r) => setTimeout(r, 3000))]);
+  },
 };

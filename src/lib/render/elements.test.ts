@@ -12,7 +12,7 @@ import {
 import { DOTS_PER_MM } from "../geometry";
 import { regionContains, safeRegion } from "../shapes";
 import { blackCount, type MonoBitmap } from "./mono";
-import { renderLabel } from "./render";
+import { renderLabel, renderPreview } from "./render";
 
 const design = (spec: LabelSpec, elements: DesignElement[]): Design => ({
   ...emptyDesign(spec.id),
@@ -228,5 +228,30 @@ describe("curved text", () => {
       record: { n: "88888" },
     });
     expect(blackCount(many.label)).toBeGreaterThan(blackCount(one.label));
+  });
+});
+
+describe("fonts", () => {
+  it("waits for every visible text font before drawing (preview and print)", async () => {
+    const spec = findLabel("rect-50x30")!;
+    const asked: string[][] = [];
+    const env = {
+      ...nodeEnv,
+      loadFonts: async (fonts: string[]) => {
+        asked.push(fonts);
+      },
+    };
+    const d = design(spec, [
+      { ...newText(1, 1, 20, 8), fontFamily: "Segoe Script", italic: true },
+      { ...newText(1, 10, 20, 8), fontFamily: "Arial" },
+      { ...newText(1, 20, 20, 8), fontFamily: "Hidden Font", hidden: true },
+    ]);
+    await renderLabel(d, spec, env);
+    await renderPreview(d, spec, env, 4);
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toEqual([
+      'italic 16px "Segoe Script", sans-serif',
+      '16px "Arial", sans-serif',
+    ]);
   });
 });

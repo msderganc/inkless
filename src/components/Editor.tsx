@@ -237,6 +237,14 @@ export default function Editor() {
     if (selectedIds.length > 0) setTab("design");
   }, [selectedIds]);
 
+  const [fontEpoch, setFontEpoch] = useState(0);
+  useEffect(() => {
+    if (!("fonts" in document)) return;
+    const bump = () => setFontEpoch((n) => n + 1);
+    document.fonts.addEventListener("loadingdone", bump);
+    return () => document.fonts.removeEventListener("loadingdone", bump);
+  }, []);
+
   // Re-render the preview (debounced; stale renders are discarded).
   const renderSeq = useRef(0);
   useEffect(() => {
@@ -271,7 +279,15 @@ export default function Editor() {
         );
     }, 80);
     return () => clearTimeout(t);
-  }, [design, spec, previewRecord, settings.offsetDots, view, shownZoom]);
+  }, [
+    design,
+    spec,
+    previewRecord,
+    settings.offsetDots,
+    view,
+    shownZoom,
+    fontEpoch,
+  ]);
 
   /** Replace whole elements (alignment, drags). */
   const replaceElements = useCallback(
