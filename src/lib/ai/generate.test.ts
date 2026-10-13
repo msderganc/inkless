@@ -5,7 +5,9 @@ import {
   categoriesFromModelText,
   generateIcons,
   generateImageIcons,
+  generatePattern,
   ICON_SYSTEM_PROMPT,
+  PATTERN_SYSTEM_PROMPT,
   svgsFromModelText,
 } from "./generate";
 
@@ -515,5 +517,65 @@ describe("generateIcons — ChatGPT plan sign-in", () => {
         "x",
       ),
     ).rejects.toThrow(/ChatGPT plan/);
+  });
+});
+
+describe("generatePattern", () => {
+  const cfg = (fetchImpl: typeof fetch) => ({
+    provider: "anthropic" as const,
+    apiKey: "k",
+    model: "claude-opus-5-5",
+    fetch: fetchImpl,
+  });
+  /** Replies in turn with each text. */
+  const replies = (texts: string[], calls: Call[]): typeof fetch => {
+    let k = 0;
+    return (input, init) =>
+      fakeFetch(
+        200,
+        anthropicMessage(texts[Math.min(k++, texts.length - 1)]!),
+        calls,
+      )(input, init);
+  };
+  const check = (t: string) => (t.includes("{bad}") ? "bad group" : undefined);
+
+  it("returns the label text, asking with the syntax guide", async () => {
+    const calls: Call[] = [];
+    const out = await generatePattern(
+      cfg(replies(['{"text": "{1/4-2:1/4}\\"", "note": "8 labels"}'], calls)),
+      "every quarter inch to 2",
+      check,
+    );
+    expect(out).toMatchObject({ text: '{1/4-2:1/4}"', note: "8 labels" });
+    expect(out.usage).toMatchObject({
+      kind: "text",
+      prompt: "every quarter inch to 2",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body.system).toBe(PATTERN_SYSTEM_PROMPT);
+  });
+
+  it("repairs once using the app's error, summing the tokens", async () => {
+    const calls: Call[] = [];
+    const out = await generatePattern(
+      cfg(replies(['{"text": "{bad}"}', '{"text": "{1-5}"}'], calls)),
+      "1 to 5",
+      check,
+    );
+    expect(out.text).toBe("{1-5}");
+    expect(calls).toHaveLength(2);
+    expect(JSON.stringify(calls[1]!.body.messages)).toContain("bad group");
+    expect(out.usage.inputTokens).toBe(20);
+  });
+
+  it("gives up after the repair, still reporting usage", async () => {
+    const err = await generatePattern(
+      cfg(replies(["no json here", "still none"], [])),
+      "x",
+      check,
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiError);
+    expect((err as AiError).usage).toMatchObject({ kind: "text" });
+    expect((err as AiError).message).toMatch(/Couldn't turn that/);
   });
 });

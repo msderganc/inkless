@@ -34,7 +34,8 @@ export interface UsageEntry {
   costUsd?: number;
   /** What was asked for (trimmed), for the history list. */
   prompt: string;
-  kind: "vector" | "image";
+  /** vector/image icons, or "text" (e.g. a described range or date). */
+  kind: "vector" | "image" | "text";
 }
 
 /** Estimated cost of one Anthropic request, or undefined for an unknown model. */

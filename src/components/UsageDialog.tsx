@@ -148,7 +148,7 @@ export function UsageDialog({ onClose }: { onClose: () => void }) {
               )}
             </div>
             {entries.length === 0 ? (
-              <p className="text-neutral-500">No AI icons generated yet.</p>
+              <p className="text-neutral-500">No AI requests yet.</p>
             ) : (
               <div className="max-h-72 overflow-auto rounded border border-neutral-200">
                 <table className="w-full text-xs">

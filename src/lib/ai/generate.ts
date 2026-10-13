@@ -117,9 +117,29 @@ function openaiError(e: unknown): AiError {
   return new AiError(e instanceof Error ? e.message : String(e));
 }
 
+/** What to ask the model: instructions, the user's request, and how hard to think. */
+interface Task {
+  system: string;
+  input: string;
+  /** What the request was for (usage log); `prompt` is what the user typed. */
+  kind: UsageEntry["kind"];
+  prompt: string;
+  effort: "low" | "medium";
+  maxTokens: number;
+}
+
+const iconTask = (prompt: string): Task => ({
+  system: ICON_SYSTEM_PROMPT,
+  input: `Icon request: ${prompt}`,
+  kind: "vector",
+  prompt,
+  effort: "medium",
+  maxTokens: 16000,
+});
+
 async function askAnthropic(
   cfg: AiConfig,
-  prompt: string,
+  task: Task,
   signal?: AbortSignal,
 ): Promise<Answer> {
   // The user's own key, used only from this browser (local app, no server).
@@ -134,10 +154,10 @@ async function askAnthropic(
     const response = await client.beta.messages.create(
       {
         model: cfg.model,
-        max_tokens: 16000,
-        system: ICON_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: `Icon request: ${prompt}` }],
-        output_config: { effort: "medium" },
+        max_tokens: task.maxTokens,
+        system: task.system,
+        messages: [{ role: "user", content: task.input }],
+        output_config: { effort: task.effort },
         // Server-side refusal fallback: a declined request is retried on a fallback model.
         ...(useFallbacks
           ? {
@@ -158,8 +178,8 @@ async function askAnthropic(
     };
     if (response.stop_reason === "refusal") {
       throw new AiError(
-        "The model declined this request. Try describing the icon differently.",
-        usageEntry(cfg, answer, prompt, "vector"),
+        "The model declined this request. Try describing it differently.",
+        usageEntry(cfg, answer, task.prompt, task.kind),
       );
     }
     return answer;
@@ -171,7 +191,7 @@ async function askAnthropic(
 
 async function askOpenAI(
   cfg: AiConfig,
-  prompt: string,
+  task: Task,
   signal?: AbortSignal,
 ): Promise<Answer> {
   const client = new OpenAI({
@@ -185,13 +205,13 @@ async function askOpenAI(
     ...(cfg.fetch ? { fetch: cfg.fetch } : {}),
   });
   try {
-    const input = `Icon request: ${prompt}`;
+    const input = task.input;
     if (cfg.chatgptPlan) {
       // ChatGPT plan route: stream: true, store: false, input as an array (OpenAI requirements).
       const stream = client.responses.stream(
         {
           model: cfg.model,
-          instructions: ICON_SYSTEM_PROMPT,
+          instructions: task.system,
           input: [{ role: "user", content: input }],
           store: false,
         },
@@ -212,7 +232,7 @@ async function askOpenAI(
       };
     }
     const response = await client.responses.create(
-      { model: cfg.model, instructions: ICON_SYSTEM_PROMPT, input },
+      { model: cfg.model, instructions: task.system, input },
       { signal },
     );
     return {
@@ -303,8 +323,8 @@ export async function generateIcons(
     throw new AiError("Add your API key in Settings first.");
   const answer =
     cfg.provider === "anthropic"
-      ? await askAnthropic(cfg, request, signal)
-      : await askOpenAI(cfg, request, signal);
+      ? await askAnthropic(cfg, iconTask(request), signal)
+      : await askOpenAI(cfg, iconTask(request), signal);
   const usage = usageEntry(cfg, answer, request, "vector");
   const svgs = svgsFromModelText(answer.text);
   if (svgs.length === 0)
@@ -400,4 +420,85 @@ export async function generateImageIcons(
     if (e instanceof AiError) throw e;
     throw openaiError(e);
   }
+}
+
+/** Instructions for turning a description into label text with ranges and date variables. */
+export const PATTERN_SYSTEM_PROMPT = `You write the text for a label-printer app. The user describes what they want printed (often a series of labels); you reply with the label text using the app's placeholder syntax.
+
+Ranges and lists in braces make one label per value (several braces multiply, the last changes fastest; the same brace text used twice is one shared counter):
+- {1-10} numbers; {01-24} zero-padded (leading zero on the start); {10-1} counts down; {-5..5} negatives use ".."
+- {0-100:5} step 5; {1/4-2:1/4} fractions shown as 1/4, 1/2, 1 1/4…; {0.5-5:0.5} decimals; {1-3:pad3} → 001
+- {A-Z} letters (case follows the start), {AA-AF} spreadsheet-style, {A-E:2} every other letter
+- {1-12:ROMAN} → I…XII, {1-12:roman} → i…xii
+- {Red|Green|Blue} a list (use it for anything that isn't a regular range)
+Other placeholders: {i} label number, {total} number of labels.
+Dates (no labels added): {today}, {today:m/d/yy}, {today+30:mmm d, yyyy}, {today+2w}, {today+3m:mm/yy}, {today+1y}, {today-1}; times {time:h:mm AM/PM}, {now:m/d/yy h:mm AM/PM}; {weekday} {month} {year} {julian}. Format tokens: d dd ddd dddd do, m mm mmm mmmm, yy yyyy, jjj (day of year), ww (ISO week), q, h hh H HH, mm after h = minutes, ss, AM/PM, "quoted text".
+Rules: keep the user's wording, units and punctuation around the placeholders (e.g. inch marks "). Use \n for a line break. Prefer the simplest form. Never produce more than 500 labels; if the request would, say so in the note and produce the closest version under 500.
+
+Reply with JSON only, no code fences: {"text": "<label text>", "note": "<one short sentence saying what it makes>"}`;
+
+/** Turn "every quarter inch from 1/4 to 2 inches" into label text like {1/4-2:1/4}". */
+export async function generatePattern(
+  cfg: AiConfig,
+  description: string,
+  check: (text: string) => string | undefined,
+  signal?: AbortSignal,
+): Promise<{ text: string; note: string; usage: UsageEntry }> {
+  const request = description.trim();
+  if (!request) throw new AiError("Describe what you want first.");
+  if (!cfg.apiKey.trim())
+    throw new AiError("Add your API key in Settings first.");
+  const ask = (input: string) => {
+    const task: Task = {
+      system: PATTERN_SYSTEM_PROMPT,
+      input,
+      kind: "text",
+      prompt: request,
+      effort: "low",
+      maxTokens: 2000,
+    };
+    return cfg.provider === "anthropic"
+      ? askAnthropic(cfg, task, signal)
+      : askOpenAI(cfg, task, signal);
+  };
+  const parse = (text: string) => {
+    const json = /\{[\s\S]*\}/.exec(text)?.[0];
+    try {
+      const v = JSON.parse(json ?? "") as { text?: unknown; note?: unknown };
+      if (typeof v.text === "string" && v.text.trim())
+        return {
+          text: v.text.slice(0, 2000),
+          note: typeof v.note === "string" ? v.note.slice(0, 300) : "",
+        };
+    } catch {
+      // fall through
+    }
+    return undefined;
+  };
+
+  let answer = await ask(request);
+  let total = { ...answer };
+  let out = parse(answer.text);
+  let problem = out ? check(out.text) : "The reply wasn't the JSON asked for.";
+  if (problem) {
+    // One repair round with the app's own error message.
+    answer = await ask(
+      `${request}\n\nYour previous answer was:\n${answer.text}\n\nThe app said: ${problem}\nFix it and reply with the JSON only.`,
+    );
+    total = {
+      ...answer,
+      inputTokens: total.inputTokens + answer.inputTokens,
+      outputTokens: total.outputTokens + answer.outputTokens,
+    };
+    out = parse(answer.text);
+    problem = out ? check(out.text) : "The reply wasn't the JSON asked for.";
+  }
+  const usage = usageEntry(cfg, total, request, "text");
+  if (!out || problem)
+    throw new AiError(
+      `Couldn't turn that into label text${problem ? ` (${problem})` : ""}. Try wording it differently.`,
+      usage,
+      answer.text.slice(0, 4000),
+    );
+  return { ...out, usage };
 }

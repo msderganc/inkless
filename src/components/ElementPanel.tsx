@@ -4,6 +4,7 @@ import {
   AlignCenter,
   Bookmark,
   Braces,
+  Sparkles,
   AlignHorizontalJustifyCenter,
   AlignHorizontalJustifyEnd,
   AlignHorizontalJustifyStart,
@@ -44,6 +45,7 @@ import {
   WINDOWS_FONTS,
 } from "~/lib/fonts";
 import { useApp } from "./app-context";
+import { DescribeText } from "./DescribeText";
 import { IconButton } from "./IconButton";
 
 /** Installed fonts, once the user has allowed listing them (kept for the session). */
@@ -303,6 +305,19 @@ function TextFields({
         />
       </label>
       <VariableMenu onInsert={insert} />
+      <details className="group text-xs">
+        <summary className="flex cursor-pointer items-center gap-1 text-neutral-600">
+          <Sparkles size={13} aria-hidden />
+          Describe it (AI writes the ranges and dates)
+        </summary>
+        <div className="mt-1.5">
+          <DescribeText
+            onUse={(text, mode) =>
+              mode === "replace" ? set({ text }) : insert(text)
+            }
+          />
+        </div>
+      </details>
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col text-xs text-neutral-600">
           Font
