@@ -21,7 +21,7 @@ export const SCOPES =
 /** Scope that allows inference billed to the ChatGPT plan; must be granted. */
 export const PLAN_SCOPE = "chatgpt.tokens.use.direct";
 export const DYNAMIC_CLIENT_ID = "dynamic_agent_client";
-export const APP_NAME = "B21S Labels";
+export const APP_NAME = "Inkless";
 
 export const chatgptAuthSchema = z.object({
   /** Issued client id (oaiapp_…) after first registration; reused for later sign-ins. */

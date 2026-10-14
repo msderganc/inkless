@@ -123,7 +123,7 @@ for (const host of HOSTS) {
   });
   server.listen(PORT, host, () => {
     if (++listening === 1)
-      console.log(`B21S Labels: http://localhost:${PORT}/`);
+      console.log(`Inkless: http://localhost:${PORT}/`);
   });
 }
 

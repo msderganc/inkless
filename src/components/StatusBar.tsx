@@ -32,7 +32,11 @@ export function StatusBar({ page }: { page: "editor" | "diagnostics" }) {
 
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-neutral-200 bg-white px-4 py-2 text-sm">
-      <span className="font-semibold">B21S Labels</span>
+      <span className="flex items-center gap-1.5 font-semibold">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static app icon */}
+        <img src="/icon.svg" alt="" className="size-5" />
+        Inkless
+      </span>
       <span
         className="flex items-center gap-2"
         role="status"

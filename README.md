@@ -1,6 +1,6 @@
-# B21S Labels
+# Inkless
 
-An offline label designer and printer for the NIIMBOT B21S over USB. It replaces the always-running NIIMBOT helper service (`jcPrinterService`). Nothing runs in the background: the app holds the printer only while its window is open.
+An offline label designer and printer for the NIIMBOT B21S over USB. (Thermal printers print with heat, so there's no ink, hence the name.) It replaces the always-running NIIMBOT helper service (`jcPrinterService`). Nothing runs in the background: the app holds the printer only while its window is open.
 
 - Spec and evidence: `G:/niimbot-investigation-20261011/NIIMBOT-B21S-replacement-plan.md`
 - Implementation plan: [docs/implementation-plan.md](docs/implementation-plan.md)

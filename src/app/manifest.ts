@@ -4,9 +4,9 @@ export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "B21S Labels",
-    short_name: "B21S Labels",
-    description: "Offline label designer and printer for the NIIMBOT B21S",
+    name: "Inkless: label designer for the NIIMBOT B21S",
+    short_name: "Inkless",
+    description: "Offline label designer for the NIIMBOT B21S thermal printer",
     start_url: "/",
     scope: "/",
     display: "standalone",

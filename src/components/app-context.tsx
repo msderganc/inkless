@@ -175,7 +175,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   if (!store) {
     return blocked ? (
       <LoadingStep
-        step="Waiting for another copy of B21S Labels to close"
+        step="Waiting for another copy of Inkless to close"
         hint="An older version is still open in another tab, window or the installed app. Close it, and this page continues by itself."
       />
     ) : (

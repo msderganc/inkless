@@ -5,12 +5,13 @@ import { ServiceWorker } from "~/components/ServiceWorker";
 import { THEME_BOOT_SCRIPT } from "~/lib/theme";
 
 export const metadata: Metadata = {
-  title: "B21S Labels",
-  description: "Offline label designer and printer for the NIIMBOT B21S",
+  title: "Inkless",
+  description: "Offline label designer for the NIIMBOT B21S thermal printer",
   manifest: "/manifest.webmanifest",
   icons: [
     { rel: "icon", url: "/icon.svg", type: "image/svg+xml" },
-    { rel: "icon", url: "/favicon.ico" },
+    { rel: "icon", url: "/favicon.ico", sizes: "48x48" },
+    { rel: "apple-touch-icon", url: "/apple-touch-icon.png" },
   ],
 };
 
