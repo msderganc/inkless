@@ -32,11 +32,12 @@ import {
 } from "~/lib/design";
 import { resolveLabel } from "~/lib/labels";
 import { DEFAULT_DENSITY, labelTypeFor } from "~/lib/printer/session";
-import { browserEnv } from "~/lib/render/browser-env";
+import { browserEnv, warmFonts } from "~/lib/render/browser-env";
 import { encodeForPrinter } from "~/lib/render/encode";
 import { type MonoBitmap } from "~/lib/render/mono";
 import {
   type CanvasLike,
+  designFonts,
   renderLabel,
   renderPreview,
 } from "~/lib/render/render";
@@ -301,6 +302,19 @@ export default function Editor() {
   }, [selectedIds]);
 
   const [fontEpoch, setFontEpoch] = useState(0);
+  // A font used for the first time: redraw once more shortly after, in case the browser was
+  // still loading it when the preview was drawn (that text would otherwise stay blank).
+  const fontsKey = designFonts(design).join("|");
+  useEffect(() => {
+    let live = true;
+    void warmFonts(fontsKey ? fontsKey.split("|") : []).then((fresh) => {
+      if (!fresh) return;
+      setTimeout(() => live && setFontEpoch((n) => n + 1), 500);
+    });
+    return () => {
+      live = false;
+    };
+  }, [fontsKey]);
   useEffect(() => {
     if (!("fonts" in document)) return;
     const bump = () => setFontEpoch((n) => n + 1);

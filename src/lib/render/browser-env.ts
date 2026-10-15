@@ -29,12 +29,49 @@ export const browserEnv: RenderEnv = {
     return c;
   },
   loadImage: (src): Promise<Drawable> => loadImage(src),
-  async loadFonts(fonts) {
-    if (typeof document === "undefined" || !("fonts" in document)) return;
-    // Installed fonts can also load lazily; wait (briefly) so text is never drawn invisibly.
-    const ready = Promise.all(
-      fonts.map((f) => document.fonts.load(f).catch(() => undefined)),
-    );
-    await Promise.race([ready, new Promise((r) => setTimeout(r, 3000))]);
-  },
+  loadFonts: (fonts) => warmFonts(fonts).then(() => undefined),
 };
+
+/** One warm-up per font (shared by concurrent renders). */
+const warming = new Map<string, Promise<void>>();
+let warmHost: HTMLElement | undefined;
+// Timers, not animation frames: frames pause in hidden tabs, which would stall rendering.
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function warmOne(font: string): Promise<void> {
+  if (!warmHost) {
+    warmHost = document.createElement("div");
+    warmHost.setAttribute("aria-hidden", "true");
+    // Rendered (so the font loads) but invisible and out of the layout.
+    warmHost.style.cssText =
+      "position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;white-space:nowrap";
+    document.body.appendChild(warmHost);
+  }
+  const span = document.createElement("span");
+  span.style.font = font;
+  span.textContent = "Aa Bb 0123 Julianna ÄÖÜ";
+  warmHost.appendChild(span);
+  void span.offsetWidth; // lay it out now, which loads the font
+  const loaded =
+    "fonts" in document
+      ? document.fonts.load(font).catch(() => [])
+      : Promise.resolve([]);
+  return Promise.race([loaded, pause(3000)])
+    .then(() => pause(60))
+    .then(() => undefined);
+}
+
+/**
+ * Make sure fonts are really loaded before canvas text uses them. Canvas text in a font that
+ * is still loading is drawn invisibly and never repaired. document.fonts.load() only covers web
+ * fonts, so fonts installed on Windows are also used once in hidden page text, which makes the
+ * browser load them. Resolves true if any font was new (the caller then redraws once more as a
+ * safety net).
+ */
+export async function warmFonts(fonts: string[]): Promise<boolean> {
+  if (typeof document === "undefined") return false;
+  const fresh = fonts.filter((f) => !warming.has(f));
+  for (const f of fresh) warming.set(f, warmOne(f));
+  await Promise.all(fonts.map((f) => warming.get(f) ?? Promise.resolve()));
+  return fresh.length > 0;
+}
