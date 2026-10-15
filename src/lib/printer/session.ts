@@ -542,6 +542,8 @@ export class PrinterSession {
         if (control.cancelled) break;
         if (!client.isConnected()) throw new Error("The printer disconnected.");
         const image = await control.guard(job.renderPage(i));
+        // Rendering can take a while: honour a Cancel pressed meanwhile before sending anything.
+        if (control.cancelled) break;
         await control.guard(task.printPage(image, job.copies));
         // A stalled feed keeps answering status polls without finishing, so bound every label.
         await control.guard(

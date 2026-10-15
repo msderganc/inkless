@@ -223,7 +223,7 @@ describe("jobs and connection changes", () => {
     expect(await s.print(job(1))).toEqual({ status: "completed", printed: 1 });
   }, 20_000);
 
-  it("cancel during a real job stops after the current label", async () => {
+  it("cancel during a real job stops before sending the label being rendered", async () => {
     const port = new SimulatedB21S();
     const s = makeSession([port]);
     await s.connect();
@@ -236,8 +236,9 @@ describe("jobs and connection changes", () => {
         return blankPage();
       },
     });
-    expect(out).toEqual({ status: "cancelled", printed: 2 });
-    expect(port.pagesPrinted).toBe(2);
+    // Cancel came while label 2 was rendering: label 1 printed, label 2 was never sent.
+    expect(out).toEqual({ status: "cancelled", printed: 1 });
+    expect(port.pagesPrinted).toBe(1);
     expect(port.ended).toBe(1);
   }, 20_000);
 });

@@ -8,6 +8,8 @@ import {
   pendingSignInSchema,
 } from "../ai/chatgpt-auth";
 import { DEFAULT_MODELS, DEFAULT_OPENAI_IMAGE_MODEL } from "../ai/models";
+import { applyOverride } from "../catalogue";
+import { geometryProblem, resolveLabel } from "../labels";
 import { type UsageEntry } from "../ai/pricing";
 import { batchSpecSchema, type BatchSpec } from "../batch";
 import {
@@ -62,6 +64,15 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const EXPORT_APP = "label-printer";
 export const EXPORT_SCHEMA = 1;
+
+/** Why an override can't apply to this label (geometry outside it), if it can't. */
+function overrideProblem(
+  labelId: string,
+  o: z.infer<typeof overrideSchema>,
+): string | undefined {
+  const base = resolveLabel(labelId);
+  return base ? geometryProblem(applyOverride(base, o)) : undefined;
+}
 
 /** Saved "My icons" limit. */
 export const MAX_SAVED_ICONS = 500;
@@ -170,6 +181,10 @@ export const draftSchema = z.object({
   zoom: z.number().min(1).max(40),
   /** Zoom follows the window size (Fit). */
   zoomFit: z.boolean().default(true),
+  /** The label name as typed (may differ from the saved template's name). */
+  name: z.string().max(200).optional(),
+  /** Changes since the label was last saved or opened. */
+  dirty: z.boolean().default(false),
   savedAt: z.number().int(),
 });
 export type Draft = z.infer<typeof draftSchema>;
@@ -383,10 +398,10 @@ export class Store {
     labelId: string,
     override: z.infer<typeof overrideSchema>,
   ): Promise<void> {
-    await this.db.put("overrides", {
-      labelId,
-      override: overrideSchema.parse(override),
-    });
+    const parsed = overrideSchema.parse(override);
+    const problem = overrideProblem(labelId, parsed);
+    if (problem) throw new Error(problem);
+    await this.db.put("overrides", { labelId, override: parsed });
   }
 
   async clearOverride(labelId: string): Promise<void> {
@@ -428,6 +443,18 @@ export class Store {
    */
   async importBackup(raw: unknown): Promise<{ templates: number }> {
     const backup = backupSchema.parse(raw);
+    for (const [labelId, o] of Object.entries(backup.overrides)) {
+      const problem = overrideProblem(labelId, o);
+      if (problem) throw new Error(`Label ${labelId}: ${problem}`);
+    }
+    const existing = new Set(
+      (await this.db.getAllKeys("icons")).map((k) => String(k)),
+    );
+    for (const i of backup.icons) existing.add(i.id);
+    if (existing.size > MAX_SAVED_ICONS)
+      throw new Error(
+        `Importing would make ${existing.size} saved icons; the limit is ${MAX_SAVED_ICONS}. Delete some first.`,
+      );
     // Saved SVGs come from a file: sanitise them again before storing.
     const icons = backup.icons.map((i) =>
       i.type === "svg" ? { ...i, data: sanitizeSvg(i.data) } : i,

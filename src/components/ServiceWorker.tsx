@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { flushPendingWork } from "~/lib/flush";
 import { isPrinterBusy } from "./app-context";
 
 const UPDATE_CHECK_MS = 30 * 60_000;
@@ -8,7 +9,7 @@ const UPDATE_CHECK_MS = 30 * 60_000;
 /**
  * Registers the offline service worker (production builds only) and applies updates by itself:
  * a new build activates as soon as it is cached, and the page reloads when no print is running.
- * Work in progress is autosaved as a draft, so the reload loses nothing.
+ * Pending work is saved first (flushPendingWork), so the reload loses nothing.
  */
 export function ServiceWorker() {
   useEffect(() => {
@@ -25,7 +26,8 @@ export function ServiceWorker() {
       if (reloading) return;
       if (!isPrinterBusy()) {
         reloading = true;
-        window.location.reload();
+        // Save the editor's latest changes first; the autosave may still be waiting.
+        void flushPendingWork().finally(() => window.location.reload());
         return;
       }
       // Never interrupt a print: try again until the job has finished.

@@ -169,15 +169,46 @@ export function shiftColumns(bmp: MonoBitmap, dots: number): MonoBitmap {
  * of the head, so labels narrower than the head are left-aligned. Wider stock (50 mm) overhangs
  * the 48 mm head and is cropped symmetrically.
  */
+/** Head column where label column 0 is printed (narrow rolls sit at the head's left end). */
+export function headLeft(
+  labelWidth: number,
+  headDots: number,
+  offsetDots = 0,
+): number {
+  const base =
+    labelWidth >= headDots ? Math.floor((headDots - labelWidth) / 2) : 0;
+  return base + Math.round(offsetDots);
+}
+
+/**
+ * The label as it comes out of a calibrated printer: the head image mapped back to label
+ * columns. The offset itself corrects the roll position, so content doesn't move; but whatever
+ * the offset pushes past the head's ends is lost, and that shows here.
+ */
+export function labelFromHead(
+  head: MonoBitmap,
+  labelWidth: number,
+  offsetDots = 0,
+): MonoBitmap {
+  const out = createMono(labelWidth, head.height);
+  const left = headLeft(labelWidth, head.width, offsetDots);
+  for (let y = 0; y < head.height; y++) {
+    for (let x = 0; x < labelWidth; x++) {
+      const hx = left + x;
+      if (hx >= 0 && hx < head.width && head.data[y * head.width + hx])
+        out.data[y * labelWidth + x] = 1;
+    }
+  }
+  return out;
+}
+
 export function positionOnHead(
   bmp: MonoBitmap,
   headDots: number,
   offsetDots = 0,
 ): MonoBitmap {
   const out = createMono(headDots, bmp.height);
-  const base =
-    bmp.width >= headDots ? Math.floor((headDots - bmp.width) / 2) : 0;
-  const left = base + Math.round(offsetDots);
+  const left = headLeft(bmp.width, headDots, offsetDots);
   for (let y = 0; y < bmp.height; y++) {
     const src = y * bmp.width;
     const dst = y * headDots;

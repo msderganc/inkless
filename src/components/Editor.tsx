@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { alignGroup, alignmentArea } from "~/lib/align";
 import { type BatchSpec, jobRecords, recordLabel } from "~/lib/batch";
 import {
+  type Design,
   type DesignElement,
   designTexts,
   designUsesBatch,
@@ -39,6 +40,7 @@ import {
   renderLabel,
   renderPreview,
 } from "~/lib/render/render";
+import { onFlush } from "~/lib/flush";
 import { type Draft, newTemplate, type Template } from "~/lib/store/store";
 import { type AiResult, AiIconDialog } from "./AiIconDialog";
 import { AiSettingsDialog } from "./AiSettingsDialog";
@@ -66,6 +68,18 @@ import { Tip } from "./Tip";
 import { findFreeSpot } from "~/lib/place";
 
 const DEFAULT_LABEL = "rect-50x30";
+
+/** What makes up the open label (the design plus everything saved with it). */
+interface DocState {
+  design: Design;
+  batch: BatchSpec;
+  density: number;
+  copies: number;
+  current?: { id: string; name: string };
+  name: string;
+}
+/** A DocState plus whether it counted as saved (restored by undo/redo). */
+type DocSwap = DocState & { clean: DocState | null };
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 type Dialog =
@@ -98,7 +112,6 @@ export default function Editor() {
     undo,
     redo,
     seal,
-    reset: resetHistory,
     canUndo,
     canRedo,
   } = useDesignHistory(() => draft?.design ?? emptyDesign(initialLabel));
@@ -117,7 +130,9 @@ export default function Editor() {
   const [zoomFit, setZoomFit] = useState(draft?.zoomFit ?? true);
   const [fitZoom, setFitZoom] = useState(DEFAULT_ZOOM);
   const [dialog, setDialog] = useState<Dialog>();
-  const [docName, setDocName] = useState(draft?.template?.name ?? "");
+  const [docName, setDocName] = useState(
+    draft?.name ?? draft?.template?.name ?? "",
+  );
   const [saveMessage, setSaveMessage] = useState<{
     ok: boolean;
     text: string;
@@ -127,7 +142,28 @@ export default function Editor() {
   const canvasArea = useRef<HTMLDivElement>(null);
   const [autosaveError, setAutosaveError] = useState<string>();
 
-  // Autosave the work in progress so it survives a refresh (debounced; flushed when hidden).
+  // Unsaved changes: compared (by reference) with the state when the label was last saved or
+  // opened. Unknown after a reload of unsaved work (the draft remembers it was dirty).
+  const docState = (): DocState => ({
+    design,
+    batch,
+    density,
+    copies,
+    current,
+    name: docName,
+  });
+  const [clean, setClean] = useState<DocState | null>(() =>
+    draft?.dirty ? null : docState(),
+  );
+  const unsaved =
+    clean?.design !== design ||
+    clean.batch !== batch ||
+    clean.density !== density ||
+    clean.copies !== copies ||
+    clean.name !== docName;
+  const hasWork = design.elements.length > 0 || batch.kind !== "none";
+
+  // Autosave the work in progress so it survives a refresh (debounced; flushed before leaving).
   const latestDraft = useRef<Draft | undefined>(undefined);
   useEffect(() => {
     latestDraft.current = {
@@ -139,6 +175,8 @@ export default function Editor() {
       view,
       zoom,
       zoomFit,
+      name: docName,
+      dirty: unsaved,
       savedAt: Date.now(),
     };
     const t = setTimeout(() => {
@@ -151,15 +189,39 @@ export default function Editor() {
           );
     }, 400);
     return () => clearTimeout(t);
-  }, [store, design, batch, density, copies, current, view, zoom, zoomFit]);
+  }, [
+    store,
+    design,
+    batch,
+    density,
+    copies,
+    current,
+    view,
+    zoom,
+    zoomFit,
+    docName,
+    unsaved,
+  ]);
+  // Never lose the last edits: save at once when hidden, on page hide, before an app-update
+  // reload (flushPendingWork) and when the editor goes away (e.g. opening Diagnostics).
   useEffect(() => {
-    const flush = () => {
-      if (document.visibilityState === "hidden" && latestDraft.current) {
-        void store.saveDraft(latestDraft.current).catch(() => undefined);
-      }
+    const save = () =>
+      latestDraft.current
+        ? store.saveDraft(latestDraft.current).catch(() => undefined)
+        : Promise.resolve();
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") void save();
     };
-    document.addEventListener("visibilitychange", flush);
-    return () => document.removeEventListener("visibilitychange", flush);
+    document.addEventListener("visibilitychange", onHidden);
+    const onPageHide = () => void save();
+    window.addEventListener("pagehide", onPageHide);
+    const unregister = onFlush(save);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", onPageHide);
+      unregister();
+      void save();
+    };
   }, [store]);
 
   const [preview, setPreview] = useState<MonoBitmap>();
@@ -659,6 +721,7 @@ export default function Editor() {
       await store.saveTemplate(t);
       setCurrent({ id: t.id, name });
       setRevision((r) => r + 1);
+      setClean({ ...docState(), current: { id: t.id, name }, name: docName });
       setSaveMessage({
         ok: true,
         text: asNew || !current ? `Saved as “${name}”.` : "Saved.",
@@ -679,43 +742,95 @@ export default function Editor() {
     return () => clearTimeout(t);
   }, [saveMessage]);
 
+  /** Ask before replacing unsaved work (it stays recoverable with Undo either way). */
+  const okToReplace = (what: string) =>
+    !unsaved ||
+    !hasWork ||
+    window.confirm(
+      `${what}? Unsaved changes to “${docName.trim() || "Untitled label"}” will be replaced. Undo brings them back.`,
+    );
+
+  // Opening a label or starting a new one is one undo step. Undo/redo of that step also swaps
+  // the batch, print settings and name back, not just the design.
+  // Every open/New step (newest last), so undo/redo across any of them restores what was
+  // saved with that side. Bounded like the undo history itself.
+  const steps = useRef<{ before: DocSwap; after: DocSwap }[]>([]);
+  const prevDesign = useRef(design);
+  /** Set by replaceDoc: its own design change needs no swap (already applied). */
+  const appliedFor = useRef<Design | undefined>(undefined);
+  const applyDoc = (d: DocSwap) => {
+    setBatch(d.batch);
+    setDensity(d.density);
+    setCopies(d.copies);
+    setCurrent(d.current);
+    setDocName(d.name);
+    setClean(d.clean);
+    setLoads((n) => n + 1); // print settings re-read their fields
+    setSaveMessage(undefined);
+    setSelectedIds([]);
+  };
+  const replaceDoc = (after: Omit<DocSwap, "clean">) => {
+    const before: DocSwap = { ...docState(), clean };
+    const next: DocSwap = { ...after, clean: after };
+    steps.current = [...steps.current, { before, after: next }].slice(-100);
+    appliedFor.current = after.design;
+    setDesign(after.design);
+    applyDoc(next);
+    changeLabel(after.design.labelId);
+  };
+  useEffect(() => {
+    const from = prevDesign.current;
+    prevDesign.current = design;
+    if (appliedFor.current === design) {
+      appliedFor.current = undefined;
+      return;
+    }
+    // Only a move straight across an open/New step (one undo or redo) swaps the rest of the
+    // label; ordinary edits, and undoing them, never do.
+    for (let i = steps.current.length - 1; i >= 0; i--) {
+      const st = steps.current[i]!;
+      if (from === st.after.design && design === st.before.design) {
+        applyDoc(st.before);
+        return;
+      }
+      if (from === st.before.design && design === st.after.design) {
+        applyDoc(st.after);
+        return;
+      }
+    }
+  }, [design]);
+
   const load = (t: Template) => {
+    if (!okToReplace(`Open “${t.name}”`)) return;
     if (!resolveLabel(t.design.labelId, overrides)) {
       setLastResult(
         `"${t.name}" uses an unknown label (${t.design.labelId}). Pick the label before printing.`,
       );
     }
-    setLoads((n) => n + 1);
-    resetHistory(t.design);
-    setBatch(t.batch);
-    setDensity(t.density);
-    setCopies(t.copies);
-    setCurrent({ id: t.id, name: t.name });
-    setDocName(t.name);
-    setSaveMessage(undefined);
-    setSelectedIds([]);
-    changeLabel(t.design.labelId);
+    replaceDoc({
+      design: t.design,
+      batch: t.batch,
+      density: t.density,
+      copies: t.copies,
+      current: { id: t.id, name: t.name },
+      name: t.name,
+    });
   };
 
-  /** Start over on a blank label of the same size (undo brings the old design back). */
+  /** Start over on a blank label of the same size (Undo brings the old one back). */
   const newLabel = () => {
-    if (
-      design.elements.length > 0 &&
-      !window.confirm(
-        "Start a new blank label? The current design will be cleared (Undo brings it back).",
-      )
-    )
-      return;
-    setDesign({
-      ...emptyDesign(design.labelId),
-      repeatInWrap: design.repeatInWrap,
+    if (!okToReplace("Start a new blank label")) return;
+    replaceDoc({
+      design: {
+        ...emptyDesign(design.labelId),
+        repeatInWrap: design.repeatInWrap,
+      },
+      batch: { kind: "none" },
+      density,
+      copies: 1,
+      current: undefined,
+      name: "",
     });
-    setBatch({ kind: "none" });
-    setLoads((n) => n + 1);
-    setCurrent(undefined);
-    setDocName("");
-    setSaveMessage(undefined);
-    setSelectedIds([]);
     setLastResult(undefined);
   };
 
@@ -1006,8 +1121,11 @@ export default function Editor() {
               </Tip>
             ) : (
               <p className="text-xs text-neutral-500">
-                Showing the exact printer dots (203 DPI). Switch to Design to
-                edit.
+                Showing the exact printer dots (203 DPI)
+                {settings.offsetDots
+                  ? `, with the calibration offset of ${settings.offsetDots > 0 ? "+" : ""}${settings.offsetDots} dots (anything it pushes past the printhead is cut off)`
+                  : ""}
+                . Switch to Design to edit.
               </p>
             )}
           </div>

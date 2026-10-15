@@ -18,6 +18,8 @@ export type Rotation = z.infer<typeof rotationSchema>;
 export const MAX_ELEMENT_MM = 500;
 export const MAX_IMAGE_SRC_CHARS = 6_000_000;
 export const MAX_SVG_CHARS = 200_000;
+/** Longest text in one text box (the saved-design limit). */
+export const MAX_TEXT_CHARS = 2000;
 
 const box = {
   id: z.string().min(1).max(100),
@@ -37,7 +39,7 @@ const box = {
 export const textElementSchema = z.object({
   ...box,
   kind: z.literal("text"),
-  text: z.string().max(2000),
+  text: z.string().max(MAX_TEXT_CHARS),
   fontSizeMm: z.number().positive().max(100),
   fontFamily: z.string().min(1).max(100),
   bold: z.boolean(),
@@ -203,7 +205,7 @@ export function newIcon(
 }
 
 /** Matches {name}, {n}, {today}, {today+7:m/d/yy}, {Due Date}… (no nested braces). */
-export const PLACEHOLDER_RE = /\{([^{}\n]{1,60})\}/g;
+export const PLACEHOLDER_RE = /\{([^{}\n]{1,500})\}/g;
 
 /** Text of the visible text elements (where ranges like {1-10} can be written). */
 export function designTexts(design: Design): string[] {

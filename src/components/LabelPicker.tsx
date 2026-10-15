@@ -31,9 +31,18 @@ export function LabelPicker({
   const status = useSessionStatus(session);
   const barcode = status.rfid?.tagPresent ? status.rfid.barCode : undefined;
   const [mapped, setMapped] = useState<string | null | undefined>(undefined);
-  const [customW, setCustomW] = useState("40");
-  const [customH, setCustomH] = useState("30");
+  const customSize = /^custom-([\d.]+)x([\d.]+)$/.exec(labelId);
+  const [customW, setCustomW] = useState(customSize?.[1] ?? "40");
+  const [customH, setCustomH] = useState(customSize?.[2] ?? "30");
   const isCustom = labelId.startsWith("custom-");
+  // Opening a saved label or a draft with another custom size updates the fields.
+  useEffect(() => {
+    const m = /^custom-([\d.]+)x([\d.]+)$/.exec(labelId);
+    if (m) {
+      setCustomW(m[1]!);
+      setCustomH(m[2]!);
+    }
+  }, [labelId]);
   const spec = resolveLabel(labelId, overrides);
 
   // V1: RFID gives a barcode, not a shape. Pre-select the label remembered for this roll.

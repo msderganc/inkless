@@ -231,8 +231,18 @@ export function parseCsv(text: string): {
 } {
   const src = text.replace(/^﻿/, "");
   const firstLine = src.split(/\r?\n/, 1)[0] ?? "";
+  // Count separators outside quotes: "Smith, John";Age is semicolon-separated.
+  const unquoted = (line: string, d: string) => {
+    let n = 0;
+    let q = false;
+    for (const ch of line) {
+      if (ch === '"') q = !q;
+      else if (ch === d && !q) n++;
+    }
+    return n;
+  };
   const delimiter = [",", ";", "\t"].reduce((best, d) =>
-    firstLine.split(d).length > firstLine.split(best).length ? d : best,
+    unquoted(firstLine, d) > unquoted(firstLine, best) ? d : best,
   );
 
   const records: string[][] = [];
@@ -270,8 +280,13 @@ export function parseCsv(text: string): {
   const header = nonEmpty[0]!.slice(0, MAX_CSV_COLUMNS);
   const seen = new Set<string>();
   const columns = header.map((h, i) => {
-    let name = h.trim().replace(/[{}]/g, "").slice(0, 60) || `col${i + 1}`;
-    while (seen.has(name.toLowerCase())) name = `${name}_${i + 1}`;
+    const base = h.trim().replace(/[{}]/g, "").slice(0, 60) || `col${i + 1}`;
+    let name = base;
+    // Make duplicates unique without going over the 60-character column limit.
+    for (let k = i + 1; seen.has(name.toLowerCase()); k++) {
+      const suffix = `_${k}`;
+      name = base.slice(0, 60 - suffix.length) + suffix;
+    }
     seen.add(name.toLowerCase());
     return name;
   });

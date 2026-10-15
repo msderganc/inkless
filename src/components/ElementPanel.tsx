@@ -27,6 +27,7 @@ import { type LabelSpec } from "~/lib/catalogue";
 import {
   type DesignElement,
   type IconElement,
+  MAX_TEXT_CHARS,
   type ImageElement,
   type Rotation,
   type ShapeElement,
@@ -276,7 +277,12 @@ function TextFields({
     const ta = textArea.current;
     const start = ta?.selectionStart ?? el.text.length;
     const end = ta?.selectionEnd ?? el.text.length;
-    set({ text: el.text.slice(0, start) + value + el.text.slice(end) });
+    set({
+      text: (el.text.slice(0, start) + value + el.text.slice(end)).slice(
+        0,
+        MAX_TEXT_CHARS,
+      ),
+    });
     requestAnimationFrame(() => {
       ta?.focus();
       ta?.setSelectionRange(start + value.length, start + value.length);
@@ -300,9 +306,23 @@ function TextFields({
         <textarea
           ref={textArea}
           className={`${field} min-h-16 text-sm text-neutral-900`}
+          maxLength={MAX_TEXT_CHARS}
           value={el.text}
-          onChange={(e) => set({ text: e.target.value })}
+          onChange={(e) =>
+            set({ text: e.target.value.slice(0, MAX_TEXT_CHARS) })
+          }
         />
+        {el.text.length > MAX_TEXT_CHARS * 0.9 && (
+          <span
+            className={
+              el.text.length >= MAX_TEXT_CHARS
+                ? "text-amber-700"
+                : "text-neutral-500"
+            }
+          >
+            {el.text.length} / {MAX_TEXT_CHARS} characters
+          </span>
+        )}
       </label>
       <VariableMenu onInsert={insert} />
       <details className="group text-xs">
@@ -313,7 +333,9 @@ function TextFields({
         <div className="mt-1.5">
           <DescribeText
             onUse={(text, mode) =>
-              mode === "replace" ? set({ text }) : insert(text)
+              mode === "replace"
+                ? set({ text: text.slice(0, MAX_TEXT_CHARS) })
+                : insert(text)
             }
           />
         </div>

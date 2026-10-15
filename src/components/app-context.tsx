@@ -27,6 +27,7 @@ import {
   type Settings,
   Store,
 } from "~/lib/store/store";
+import { flushPendingWork } from "~/lib/flush";
 import { LoadingStep } from "./LoadingStep";
 
 interface AppContextValue {
@@ -72,6 +73,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const [overrides, setOverrides] = useState<Record<string, LabelOverride>>({});
   const [initialDraft, setInitialDraft] = useState<Draft>();
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const session = useMemo(getSession, []);
 
   useEffect(() => {
@@ -96,7 +98,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
     return () => {
       cancelled = true;
-      opened?.close();
+      // React cleans up parents before children, so run the editor's pending save (it is
+      // still registered) before closing the database it writes to.
+      const db = opened;
+      void flushPendingWork().finally(() => db?.close());
     };
   }, [session]);
 
@@ -124,12 +129,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         settingsRef.current.autoConnect &&
         (state === "disconnected" || state === "error")
       ) {
-        // Give the device a moment to finish enumerating before opening it.
-        setTimeout(() => void session.connect({ auto: true }), 1_000);
+        // Give the device a moment to finish enumerating before opening it, then check again:
+        // the user may have pressed Disconnect in the meantime.
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = setTimeout(() => {
+          reconnectTimer.current = undefined;
+          const now = session.getStatus().state;
+          if (
+            settingsRef.current.autoConnect &&
+            (now === "disconnected" || now === "error")
+          )
+            void session.connect({ auto: true });
+        }, 1_000);
       }
     };
     navigator.serial.addEventListener("connect", onConnect);
-    return () => navigator.serial.removeEventListener("connect", onConnect);
+    return () => {
+      navigator.serial.removeEventListener("connect", onConnect);
+      clearTimeout(reconnectTimer.current);
+    };
   }, [session]);
 
   const updateSettings = useCallback(
@@ -156,13 +174,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [session, updateSettings]);
 
   const disconnectPrinter = useCallback(async () => {
+    clearTimeout(reconnectTimer.current);
+    reconnectTimer.current = undefined;
     await updateSettings({ autoConnect: false });
     await session.disconnect();
   }, [session, updateSettings]);
 
   const reloadOverrides = useCallback(async () => {
-    if (store) setOverrides(await store.getOverrides());
-  }, [store]);
+    if (!store) return;
+    setOverrides(await store.getOverrides());
+    // A backup import also replaces settings: use them now, so a later change doesn't write
+    // the old values back.
+    const loaded = await store.getSettings();
+    settingsRef.current = loaded;
+    setSettings(loaded);
+    session.setPacketLogging(loaded.diagnostics);
+  }, [store, session]);
 
   if (error) {
     return (

@@ -4,6 +4,7 @@ import {
   blackCount,
   createMono,
   cropColumns,
+  labelFromHead,
   positionOnHead,
   dither,
   luminance,
@@ -108,6 +109,21 @@ describe("mono", () => {
     expect(rowsOf(cropColumns(bmpFrom(4, ["#..#", ".##."]), 1, 2))).toEqual([
       "..",
       "##",
+    ]);
+  });
+});
+
+describe("calibration offset in the As printed view", () => {
+  it("keeps content in place but drops what the offset pushes off the head", () => {
+    // 4-dot label on an 8-dot head (narrow roll: label starts at head column 0).
+    const label = bmpFrom(4, ["####"]);
+    const head = positionOnHead(label, 8, -2);
+    expect(rowsOf(head)).toEqual(["##......"]);
+    // Back on the label: the first two columns fell off the head's left end.
+    expect(rowsOf(labelFromHead(head, 4, -2))).toEqual(["..##"]);
+    // A positive offset that stays on the head loses nothing and moves nothing.
+    expect(rowsOf(labelFromHead(positionOnHead(label, 8, 3), 4, 3))).toEqual([
+      "####",
     ]);
   });
 });

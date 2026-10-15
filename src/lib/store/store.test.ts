@@ -174,6 +174,7 @@ describe("editor draft", () => {
     view: "print",
     zoom: 12,
     zoomFit: false,
+    dirty: false,
     savedAt: 1,
   });
 

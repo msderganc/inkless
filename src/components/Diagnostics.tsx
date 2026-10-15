@@ -307,9 +307,11 @@ function LabelCalibration() {
       await store.saveOverride(labelId, parsed);
       await reloadOverrides();
       setMsg("Saved.");
-    } catch {
+    } catch (e) {
       setMsg(
-        "Invalid. Allowed keys: widthMm, heightMm, cornerRadiusMm, panels [{y,height},{y,height}], flag {y,height}, wrap {y,height}.",
+        e instanceof Error && !(e instanceof SyntaxError) && !("issues" in e)
+          ? e.message
+          : "Invalid. Allowed keys: widthMm, heightMm, cornerRadiusMm, panels [{y,height},{y,height}], flag {y,height}, wrap {y,height}.",
       );
     }
   };

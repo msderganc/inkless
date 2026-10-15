@@ -26,6 +26,7 @@ import {
   adjustThickness,
   dither,
   invert,
+  labelFromHead,
   luminance,
   type MonoBitmap,
   rotateBand180,
@@ -511,6 +512,13 @@ export async function renderLabel(
   const label = threshold(gray, width, height, 128);
   if (opts.view === "design") maskToSafeArea(label, spec);
   else applyShapeTransforms(label, spec, design);
-  const print = positionOnHead(label, PRINTHEAD_DOTS, opts.offsetDots ?? 0);
-  return { label, print, window };
+  const offset = opts.offsetDots ?? 0;
+  const print = positionOnHead(label, PRINTHEAD_DOTS, offset);
+  // "As printed" shows what actually reaches the label, including anything the calibration
+  // offset pushes off the end of the printhead.
+  return {
+    label: offset ? labelFromHead(print, label.width, offset) : label,
+    print,
+    window,
+  };
 }

@@ -4,9 +4,11 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import handler from "serve-handler";
 
-const PORT = 5179;
+// Overridable only for tests (storage is per origin, so the app always uses 5179).
+const PORT = Number(process.env.LABEL_PORT ?? 5179);
 // Both loopback addresses: browsers may resolve "localhost" to IPv6 (::1) first.
 const HOSTS = ["127.0.0.1", "::1"];
 
@@ -26,8 +28,27 @@ const APP_ORIGINS = new Set([
   `http://[::1]:${PORT}`,
 ]);
 const MAX_BODY = 1_000_000;
+const UPSTREAM = process.env.LABEL_OPENAI_UPSTREAM ?? "https://api.openai.com/v1";
 
+/** End a response that may already be streaming or closed, without throwing. */
+function fail(res, status, message) {
+  if (res.destroyed || res.writableEnded) return;
+  if (res.headersSent) {
+    res.destroy(); // mid-stream: the app sees a cut-off stream and reports it
+    return;
+  }
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: { message, type: "proxy_error" } }));
+}
+
+/**
+ * Every failure here (upstream drops, the app closes the dialog mid-stream, an upload is cut
+ * off) ends only this request; it must never take the server down.
+ */
 async function proxyOpenAI(req, res) {
+  // Socket errors on either side are handled by the code below; don't let them go unhandled.
+  req.on("error", () => undefined);
+  res.on("error", () => undefined);
   const path = req.url.slice(PROXY_PREFIX.length).split("?")[0];
   const origin = req.headers.origin;
   if (!PROXY_PATHS.has(path) || (origin && !APP_ORIGINS.has(origin))) {
@@ -40,13 +61,20 @@ async function proxyOpenAI(req, res) {
   }
   const chunks = [];
   let size = 0;
-  for await (const c of req) {
-    size += c.length;
-    if (size > MAX_BODY) {
-      res.writeHead(413).end();
-      return;
+  try {
+    for await (const c of req) {
+      size += c.length;
+      if (size > MAX_BODY) {
+        fail(res, 413, "Request too large.");
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
     }
-    chunks.push(c);
+  } catch {
+    // The upload was cut off (tab closed, request cancelled): nothing to forward.
+    res.destroy();
+    return;
   }
   const headers = {};
   for (const h of ["authorization", "content-type", "accept"]) {
@@ -55,7 +83,7 @@ async function proxyOpenAI(req, res) {
   const ctl = new AbortController();
   res.on("close", () => ctl.abort());
   try {
-    const upstream = await fetch(`https://api.openai.com/v1/${path}`, {
+    const upstream = await fetch(`${UPSTREAM}/${path}`, {
       method: req.method,
       headers,
       body: req.method === "POST" ? Buffer.concat(chunks) : undefined,
@@ -66,26 +94,30 @@ async function proxyOpenAI(req, res) {
       const v = upstream.headers.get(h);
       if (v) out[h] = v;
     }
+    if (res.destroyed) return;
     res.writeHead(upstream.status, out);
-    if (upstream.body) Readable.fromWeb(upstream.body).pipe(res);
-    else res.end();
+    if (!upstream.body) {
+      res.end();
+      return;
+    }
+    // pipeline() tears both sides down on any error instead of emitting an unhandled one.
+    await pipeline(Readable.fromWeb(upstream.body), res);
   } catch (e) {
-    if (ctl.signal.aborted) return;
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error: {
-          message: `The local server couldn't reach OpenAI: ${e.cause?.code ?? e.message}`,
-          type: "proxy_error",
-        },
-      }),
+    if (ctl.signal.aborted) return; // the app went away; nothing to tell it
+    fail(
+      res,
+      502,
+      `The local server couldn't reach OpenAI: ${e?.cause?.code ?? e?.message ?? e}`,
     );
   }
 }
 
 const app = (req, res) => {
   if (req.url?.startsWith(PROXY_PREFIX)) {
-    void proxyOpenAI(req, res);
+    proxyOpenAI(req, res).catch((e) => {
+      console.warn("OpenAI relay error:", e?.message ?? e);
+      fail(res, 500, "Relay error.");
+    });
     return;
   }
   return handler(req, res, {
@@ -130,7 +162,7 @@ for (const host of HOSTS) {
 // "Sign in with ChatGPT" requires a loopback redirect on 127.0.0.1 (never "localhost").
 // This listener only forwards OpenAI's redirect (code + state) to the app, which does the
 // PKCE token exchange itself. It sees the one-time authorization code, nothing else.
-const OAUTH_PORT = 1455;
+const OAUTH_PORT = Number(process.env.LABEL_OAUTH_PORT ?? 1455);
 const APP_ORIGIN = `http://localhost:${PORT}`;
 const oauth = createServer((req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${OAUTH_PORT}`);

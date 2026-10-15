@@ -24,7 +24,7 @@
     "idb": "8.0.4",
     "lucide": "1.55.0",
     "lucide-react": "1.55.0",
-    "next": "^15.2.3",
+    "next": "^15.5.28",
     "openai": "7.32.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -55,5 +55,10 @@
   "ct3aMetadata": {
     "initVersion": "7.40.0"
   },
-  "packageManager": "npm@11.19.0"
+  "packageManager": "npm@11.19.0",
+  "overrides": {
+    "next": {
+      "postcss": "8.5.29"
+    }
+  }
 }

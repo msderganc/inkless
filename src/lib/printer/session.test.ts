@@ -244,6 +244,26 @@ describe("PrinterSession printing", () => {
     expect(session.getStatus().state).toBe("ready");
   });
 
+  it("cancel during rendering sends nothing for that label", async () => {
+    const { session, task } = setup();
+    await session.connect();
+    const rendering = new Deferred();
+    const running = session.print({
+      ...job(3, 100),
+      renderPage: async () => {
+        await rendering.promise;
+        return image;
+      },
+    });
+    await vi.waitFor(() => expect(task.calls).toEqual(["init"]));
+    const cancelled = session.cancel();
+    rendering.resolve();
+    await cancelled;
+    expect(await running).toEqual({ status: "cancelled", printed: 0 });
+    // No page (and none of its 100 copies) was sent.
+    expect(task.calls).toEqual(["init", "end"]);
+  });
+
   it("reports printer errors, ends the job and does not resend", async () => {
     const { session, task } = setup();
     await session.connect();
