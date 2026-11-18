@@ -1,7 +1,7 @@
 # B21S label printer: implementation plan
 
 Date: October 11, 2026
-Spec: `G:/niimbot-investigation-20261011/NIIMBOT-B21S-replacement-plan.md` (requirements, label catalogue, validation findings V1–V10)
+Spec: `NIIMBOT-B21S-replacement-plan.md` (kept outside this repo) (requirements, label catalogue, validation findings V1–V10)
 
 ## Status (October 11, 2026)
 
