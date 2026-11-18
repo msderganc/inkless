@@ -367,3 +367,7 @@ The printer protocol comes from [NiimBlueLib](https://github.com/MultiMote/niimb
 - [Lucide](https://lucide.dev) icons (ISC).
 
 Inkless is an independent project, not affiliated with or endorsed by NIIMBOT.
+
+## License
+
+[MIT](LICENSE)
